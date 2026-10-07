@@ -2,7 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { json, urlencoded } from 'express';
+import { json, urlencoded, static as serveStatic } from 'express';
+import * as path from 'path';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -11,6 +12,9 @@ async function bootstrap() {
   // Increase payload limit for base64 image uploads (prevents 413 Request Entity Too Large)
   app.use(json({ limit: '50mb' }));
   app.use(urlencoded({ limit: '50mb', extended: true }));
+
+  // Serve static uploads for fallback
+  app.use('/api/uploads', serveStatic(path.join(process.cwd(), 'uploads')));
 
   // Enable CORS
   app.enableCors({
