@@ -15,7 +15,8 @@
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:wipe": "node prisma/wipe_all_data.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",
