@@ -118,12 +118,19 @@ export class OrdersController {
   @ApiOperation({ summary: 'Update order payment status' })
   async updatePayment(
     @Param('id') id: string,
-    @Body() body: { paymentStatus: PaymentStatus; paymentMethod?: string },
+    @Body()
+    body: {
+      paymentStatus: PaymentStatus;
+      paymentMethod?: string;
+      paymentProofUrl?: string;
+      paymentReceivedAt?: string;
+      paymentNotes?: string;
+    },
   ) {
-    const updated = await this.ordersService.updatePayment(id, body.paymentStatus, body.paymentMethod);
+    const updated = await this.ordersService.updatePayment(id, body);
     return {
       success: true,
-      message: 'Payment status updated',
+      message: 'Payment status updated successfully',
       data: updated,
     };
   }

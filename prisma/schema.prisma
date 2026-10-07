@@ -220,6 +220,9 @@ model Order {
   razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+  paymentProofUrl   String?             @db.Text
+  paymentReceivedAt DateTime?
+  paymentNotes      String?             @db.Text
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 

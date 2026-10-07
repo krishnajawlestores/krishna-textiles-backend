@@ -359,18 +359,9 @@ export class OrdersService {
     const discountAmount = 0;
     const totalAmount = subtotal + taxAmount - discountAmount;
 
-    const isCod = data.paymentMethod === 'CASH_ON_DELIVERY';
-    const resolvedPaymentStatus = data.paymentStatus
-      ? data.paymentStatus
-      : isCod
-        ? PaymentStatus.UNPAID
-        : PaymentStatus.PAID;
+    const resolvedPaymentStatus = data.paymentStatus || PaymentStatus.UNPAID;
 
-    const historyNote = data.paymentMethod === 'RAZORPAY'
-      ? `Order placed & payment verified via Razorpay (${data.razorpayPaymentId || 'Online'}). Awaiting dispatch.`
-      : isCod
-        ? 'Order placed via Cash on Delivery. Payment pending upon delivery.'
-        : 'Order placed & payment verified. Awaiting dispatch.';
+    const historyNote = 'Order placed successfully. Payment pending (Our team will contact you).';
 
     // Order placed into database; initial fulfillment stage is Dispatch Pending (CONFIRMED)
     const order = await this.prisma.order.create({
@@ -381,7 +372,7 @@ export class OrdersService {
         customerPhone: trimmedPhone || 'N/A',
         customerEmail: trimmedEmail,
         shippingAddress: data.shippingAddress,
-        paymentMethod: data.paymentMethod || 'RAZORPAY',
+        paymentMethod: data.paymentMethod || 'PAY_LATER',
         paymentStatus: resolvedPaymentStatus,
         status: OrderStatus.CONFIRMED, // Dispatch Pending
         subtotal,
@@ -565,20 +556,87 @@ export class OrdersService {
     return updated;
   }
 
-  async updatePayment(id: string, paymentStatus: PaymentStatus, paymentMethod?: string) {
+  async updatePayment(
+    id: string,
+    payload:
+      | PaymentStatus
+      | {
+          paymentStatus: PaymentStatus;
+          paymentMethod?: string;
+          paymentProofUrl?: string;
+          paymentReceivedAt?: string | Date;
+          paymentNotes?: string;
+        },
+    legacyPaymentMethod?: string,
+  ) {
     const order = await this.prisma.order.findFirst({
       where: { OR: [{ id }, { orderNumber: id }] },
     });
     if (!order) throw new NotFoundException(`Order '${id}' not found`);
 
-    return this.prisma.order.update({
+    let paymentStatus: PaymentStatus;
+    let paymentMethod = legacyPaymentMethod || order.paymentMethod;
+    let paymentProofUrl = order.paymentProofUrl;
+    let paymentReceivedAt = order.paymentReceivedAt;
+    let paymentNotes = order.paymentNotes;
+
+    if (typeof payload === 'string') {
+      paymentStatus = payload as PaymentStatus;
+      if (paymentStatus === PaymentStatus.PAID && !paymentReceivedAt) {
+        paymentReceivedAt = new Date();
+      }
+    } else {
+      paymentStatus = payload.paymentStatus;
+      if (payload.paymentMethod) {
+        paymentMethod = payload.paymentMethod;
+      }
+      if (payload.paymentProofUrl !== undefined) {
+        paymentProofUrl = payload.paymentProofUrl;
+      }
+      if (payload.paymentReceivedAt !== undefined) {
+        paymentReceivedAt = payload.paymentReceivedAt
+          ? new Date(payload.paymentReceivedAt)
+          : null;
+      } else if (paymentStatus === PaymentStatus.PAID && !paymentReceivedAt) {
+        paymentReceivedAt = new Date();
+      }
+      if (payload.paymentNotes !== undefined) {
+        paymentNotes = payload.paymentNotes;
+      }
+    }
+
+    if (paymentStatus === PaymentStatus.UNPAID) {
+      paymentReceivedAt = null;
+    }
+
+    const updated = await this.prisma.order.update({
       where: { id: order.id },
       data: {
         paymentStatus,
-        paymentMethod: paymentMethod || order.paymentMethod,
+        paymentMethod,
+        paymentProofUrl,
+        paymentReceivedAt,
+        paymentNotes,
       },
       include: { items: true, history: true },
     });
+
+    const isPaid = paymentStatus === PaymentStatus.PAID;
+    const noteText = isPaid
+      ? `Payment received recorded by Admin.${paymentProofUrl ? ' Proof screenshot uploaded.' : ''}${paymentNotes ? ` Note: ${paymentNotes}` : ''}`
+      : 'Payment status updated to Payment Pending by Admin.';
+
+    await this.prisma.orderStatusHistory.create({
+      data: {
+        orderId: order.id,
+        status: order.status,
+        note: noteText,
+        changedBy: 'Admin',
+      },
+    });
+
+    await this.cache.invalidatePrefix('analytics:');
+    return updated;
   }
 
   async getInvoiceData(id: string) {
