@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -103,11 +103,11 @@ export class CmsService {
   private defaultPages: CmsPage[] = [
     {
       id: 'page-about',
-      title: 'About Krishna Textiles',
+      title: 'About Krishna Jawli Stores',
       slug: 'about-us',
-      content: `### Welcome to Krishna Textiles Pvt Ltd
+      content: `### Welcome to Krishna Jawli Stores Pvt Ltd
 
-Established in the textile heartland of Tiruppur and Erode, Tamil Nadu, Krishna Textiles has grown into one of South India's foremost integrated textile manufacturing and wholesale distribution powerhouses.
+Established in the textile heartland of Tiruppur and Erode, Tamil Nadu, Krishna Jawli Stores has grown into one of South India's foremost integrated textile manufacturing and wholesale distribution powerhouses.
 
 #### Our Heritage & Production Capabilities
 With over 450 modern shuttleless looms and advanced dyeing infrastructure, we produce over 80,000 meters of premium woven grey and finished textiles every day. Our catalog spans:
@@ -118,7 +118,7 @@ With over 450 modern shuttleless looms and advanced dyeing infrastructure, we pr
 
 #### Direct Mill Advantage
 By eliminating middlemen and connecting merchants, boutiques, and consumers directly to our spinning and weaving facilities, we guarantee unbeatable wholesale pricing, stringent ISO-certified quality audits, and pan-India dispatch capability.`,
-      metaDescription: 'Learn about Krishna Textiles — South India\'s premier manufacturer of authentic sarees, dhotis, cotton knitwear, and home textiles.',
+      metaDescription: 'Learn about Krishna Jawli Stores — South India\'s premier manufacturer of authentic sarees, dhotis, cotton knitwear, and home textiles.',
       isPublished: true,
       lastUpdatedBy: 'Admin',
       updatedAt: new Date().toISOString(),
@@ -129,7 +129,7 @@ By eliminating middlemen and connecting merchants, boutiques, and consumers dire
       slug: 'shipping-policy',
       content: `### Fast, Reliable Pan-India Delivery
 
-Krishna Textiles partners with top courier and cargo providers (Blue Dart, Delhivery, DTDC, VRL Cargo, and India Post) to ensure safe transit across all 28,000+ postal pincodes in India.
+Krishna Jawli Stores partners with top courier and cargo providers (Blue Dart, Delhivery, DTDC, VRL Cargo, and India Post) to ensure safe transit across all 28,000+ postal pincodes in India.
 
 #### Dispatch & Timelines
 - **Processing Window**: Orders are inspected, packed with moisture-barrier packaging, and dispatched within 24 to 48 business hours from our Erode or Tiruppur logistics hubs.
@@ -140,7 +140,7 @@ Krishna Textiles partners with top courier and cargo providers (Blue Dart, Delhi
   - Remote/Northeast regions: 6–8 business days.
 - **Tracking**: A unique 9-digit Order ID and courier AWB number with real-time tracking link is dispatched via SMS and WhatsApp as soon as your shipment is handed over.
 - **Shipping Rates**: Free shipping on all retail orders above ₹999. Nominal flat fee of ₹49 applies for orders below the threshold. Commercial freight for wholesale rolls is calculated at direct transport charges.`,
-      metaDescription: 'Detailed shipping guidelines, dispatch schedules, and delivery transit timelines for Krishna Textiles orders across India.',
+      metaDescription: 'Detailed shipping guidelines, dispatch schedules, and delivery transit timelines for Krishna Jawli Stores orders across India.',
       isPublished: true,
       lastUpdatedBy: 'Admin',
       updatedAt: new Date().toISOString(),
@@ -169,7 +169,7 @@ We take pride in our textile craft and quality standards. If you receive an item
       slug: 'terms-and-conditions',
       content: `### Terms & Conditions
 
-Welcome to the Krishna Textiles official storefront and wholesale portal. By accessing, placing an order, or browsing this portal, you agree to comply with the terms set forth herein.
+Welcome to the Krishna Jawli Stores official storefront and wholesale portal. By accessing, placing an order, or browsing this portal, you agree to comply with the terms set forth herein.
 
 #### 1. Pricing & GST
 All retail product prices displayed on the webstore are in Indian Rupees (INR) inclusive of standard 5% GST on textile goods. B2B wholesale orders may submit their GSTIN during checkout or customer onboarding for claiming input tax credit (ITC).
@@ -178,8 +178,8 @@ All retail product prices displayed on the webstore are in Indian Rupees (INR) i
 Due to natural fiber characteristics and varying screen resolutions, actual fabric colors may vary slightly from online representations. Minor variations in handloom slubs and zari sheen are hallmarks of genuine woven craftsmanship.
 
 #### 3. Intellectual Property
-All product photographs, digital assets, descriptions, and textile brand trademarks belong exclusively to Krishna Textiles Pvt Ltd. Unauthorized copying or redistribution is strictly prohibited.`,
-      metaDescription: 'Official terms and conditions governing purchases and usage on the Krishna Textiles platform.',
+All product photographs, digital assets, descriptions, and textile brand trademarks belong exclusively to Krishna Jawli Stores Pvt Ltd. Unauthorized copying or redistribution is strictly prohibited.`,
+      metaDescription: 'Official terms and conditions governing purchases and usage on the Krishna Jawli Stores platform.',
       isPublished: true,
       lastUpdatedBy: 'Admin',
       updatedAt: new Date().toISOString(),
@@ -188,7 +188,7 @@ All product photographs, digital assets, descriptions, and textile brand tradema
       id: 'page-contact',
       title: 'Contact, Mill Location & Showroom',
       slug: 'contact-us',
-      content: `### Get in Touch with Krishna Textiles
+      content: `### Get in Touch with Krishna Jawli Stores
 
 Whether you are a retail customer seeking sizing assistance or a boutique retailer looking for bulk dealership, our customer service team and mill merchandisers are here to assist you.
 
@@ -201,7 +201,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
 - **WhatsApp Support**: +91 98422 11099
 - **Retail Orders**: support@krishnatextiles.com
 - **Wholesale & Export Inquiries**: wholesale@krishnatextiles.com`,
-      metaDescription: 'Showroom address, contact phone numbers, email IDs, and location details for Krishna Textiles mills in Tiruppur and Erode.',
+      metaDescription: 'Showroom address, contact phone numbers, email IDs, and location details for Krishna Jawli Stores mills in Tiruppur and Erode.',
       isPublished: true,
       lastUpdatedBy: 'Admin',
       updatedAt: new Date().toISOString(),

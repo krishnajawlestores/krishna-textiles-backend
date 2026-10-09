@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomCacheService } from '../cache/custom-cache.service';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
@@ -643,7 +643,7 @@ export class OrdersService {
     const order = await this.findOne(id);
     return {
       company: {
-        name: 'Krishna Textiles Pvt Ltd',
+        name: 'Krishna Jawli Stores Pvt Ltd',
         tagline: 'Leading Textile Manufacturers & Hosiery Wholesalers',
         gstin: '33AAACK9911D1ZX',
         pan: 'AAACK9911D',

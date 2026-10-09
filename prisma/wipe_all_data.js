@@ -1,4 +1,4 @@
-const { PrismaClient, Role } = require('@prisma/client');
+﻿const { PrismaClient, Role } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
 const prisma = new PrismaClient();
@@ -65,11 +65,11 @@ async function wipeDatabase() {
       update: {
         role: Role.ADMIN,
         passwordHash: adminPasswordHash,
-        name: 'Krishna Textiles Admin',
+        name: 'Krishna Jawli Stores Admin',
       },
       create: {
         email: 'admin@krishnatextiles.com',
-        name: 'Krishna Textiles Admin',
+        name: 'Krishna Jawli Stores Admin',
         passwordHash: adminPasswordHash,
         role: Role.ADMIN,
         phone: '+91 98765 43210',

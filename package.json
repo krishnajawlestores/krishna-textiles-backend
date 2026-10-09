@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "krishna-textiles-backend",
   "version": "1.0.0",
-  "description": "Enterprise Backend for Krishna Textiles with Session & Cache Management",
-  "author": "Krishna Textiles",
+  "description": "Enterprise Backend for Krishna Jawli Stores with Session & Cache Management",
+  "author": "Krishna Jawli Stores",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {

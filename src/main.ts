@@ -1,4 +1,4 @@
-import { NestFactory } from '@nestjs/core';
+﻿import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -37,9 +37,9 @@ async function bootstrap() {
 
   // Swagger Documentation
   const config = new DocumentBuilder()
-    .setTitle('Krishna Textiles Enterprise API')
+    .setTitle('Krishna Jawli Stores Enterprise API')
     .setDescription(
-      'Complete enterprise backend services for Krishna Textiles: User Session Management, In-Memory Cache Layer, Inventory Tracking, Order Workflow, CRM & Analytics.',
+      'Complete enterprise backend services for Krishna Jawli Stores: User Session Management, In-Memory Cache Layer, Inventory Tracking, Order Workflow, CRM & Analytics.',
     )
     .setVersion('1.0.0')
     .addBearerAuth()
@@ -50,7 +50,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
-  logger.log(`🚀 Krishna Textiles Backend running on http://localhost:${port}/api`);
+  logger.log(`🚀 Krishna Jawli Stores Backend running on http://localhost:${port}/api`);
   logger.log(`📚 Swagger Documentation accessible at http://localhost:${port}/api/docs`);
 }
 
