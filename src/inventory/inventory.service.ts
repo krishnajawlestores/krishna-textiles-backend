@@ -66,6 +66,7 @@ export class InventoryService {
     reason: string;
     note?: string;
     createdBy?: string;
+    size?: string;
   }) {
     const product = await this.prisma.product.findUnique({
       where: { id: params.productId },
@@ -73,8 +74,30 @@ export class InventoryService {
 
     if (!product) throw new NotFoundException(`Product with ID '${params.productId}' not found`);
 
-    const previousStock = product.stock;
-    const newStock = previousStock + params.delta;
+    let updatedVariants = product.sizeVariants as any[];
+    let previousStock = product.stock;
+    let newStock = previousStock + params.delta;
+
+    if (params.size && Array.isArray(updatedVariants) && updatedVariants.length > 0) {
+      const targetVariant = updatedVariants.find(
+        (v: any) => String(v.size).toLowerCase() === String(params.size).toLowerCase(),
+      );
+      if (targetVariant) {
+        const vPrev = Number(targetVariant.stock) || 0;
+        const vNew = vPrev + params.delta;
+        if (vNew < 0) {
+          throw new BadRequestException(
+            `Cannot reduce stock of Size ${params.size} by ${Math.abs(params.delta)}. Available is only ${vPrev}.`,
+          );
+        }
+        updatedVariants = updatedVariants.map((v: any) =>
+          String(v.size).toLowerCase() === String(params.size).toLowerCase()
+            ? { ...v, stock: vNew }
+            : v,
+        );
+        newStock = updatedVariants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+      }
+    }
 
     if (newStock < 0) {
       throw new BadRequestException(
@@ -82,10 +105,17 @@ export class InventoryService {
       );
     }
 
+    const auditNote = params.size
+      ? `[Size ${params.size}] ${params.note || ''}`.trim()
+      : params.note || null;
+
     const [updatedProduct, audit] = await this.prisma.$transaction([
       this.prisma.product.update({
         where: { id: params.productId },
-        data: { stock: newStock },
+        data: {
+          stock: newStock,
+          sizeVariants: updatedVariants || product.sizeVariants,
+        },
       }),
       this.prisma.inventoryAudit.create({
         data: {
@@ -94,7 +124,7 @@ export class InventoryService {
           newStock,
           delta: params.delta,
           reason: params.reason,
-          note: params.note || null,
+          note: auditNote,
           createdBy: params.createdBy || 'Admin',
         },
       }),

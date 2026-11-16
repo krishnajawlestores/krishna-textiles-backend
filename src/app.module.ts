@@ -15,6 +15,7 @@ import { CouponsModule } from './coupons/coupons.module';
 import { OffersModule } from './offers/offers.module';
 import { CmsModule } from './cms/cms.module';
 import { UploadModule } from './upload/upload.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { UploadModule } from './upload/upload.module';
     OffersModule,
     CmsModule,
     UploadModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

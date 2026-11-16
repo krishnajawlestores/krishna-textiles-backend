@@ -195,6 +195,23 @@ export class ProductsService {
     }
     const primaryImage = allImages[0] || data.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500';
 
+    const sizeVariants = Array.isArray((data as any).sizeVariants) ? (data as any).sizeVariants : [];
+    let initialPrice = Number(data.price) || 0;
+    let initialMrp = Number(data.mrp) || initialPrice;
+    let initialStock = Number(data.stock) || 0;
+    let initialSizes = data.sizes || ['Free Size'];
+
+    if (sizeVariants.length > 0) {
+      initialSizes = sizeVariants.map((v: any) => v.size).filter(Boolean);
+      if (!initialPrice || initialPrice <= 0) {
+        initialPrice = Number(sizeVariants[0].price) || 0;
+      }
+      if (!initialMrp || initialMrp <= 0) {
+        initialMrp = Number(sizeVariants[0].mrp) || initialPrice;
+      }
+      initialStock = sizeVariants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
+    }
+
     const product = await this.prisma.product.create({
       data: {
         name: data.name,
@@ -204,11 +221,12 @@ export class ProductsService {
         brandRefId: data.brandRefId || null,
         category: data.category.toLowerCase(),
         categoryId: data.categoryId || null,
-        price: Number(data.price),
-        mrp: Number(data.mrp),
-        discount: Number(data.discount) || Math.round(((data.mrp - data.price) / data.mrp) * 100),
-        sizes: data.sizes || ['Free Size'],
-        stock: Number(data.stock) || 0,
+        price: initialPrice,
+        mrp: initialMrp,
+        discount: Number(data.discount) || Math.round(((initialMrp - initialPrice) / (initialMrp || 1)) * 100),
+        sizes: initialSizes,
+        sizeVariants: sizeVariants,
+        stock: initialStock,
         minStockAlert: Number(data.minStockAlert) || 20,
         description: data.description || null,
         sku,
@@ -244,6 +262,19 @@ export class ProductsService {
     if (data.brandRefId !== undefined) updatePayload.brandRefId = data.brandRefId || null;
     if (data.brand !== undefined) updatePayload.brand = (data.brand || '').trim();
     if (data.colors !== undefined) updatePayload.colors = data.colors;
+    if (data.sizeVariants !== undefined) {
+      const variants = Array.isArray(data.sizeVariants) ? data.sizeVariants : [];
+      updatePayload.sizeVariants = variants;
+      if (variants.length > 0) {
+        updatePayload.sizes = variants.map((v: any) => v.size).filter(Boolean);
+        if (data.stock === undefined) {
+          updatePayload.stock = variants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
+        }
+        if (data.price === undefined && variants[0]?.price) {
+          updatePayload.price = Number(variants[0].price);
+        }
+      }
+    }
     if (data.brandId !== undefined) {
       updatePayload.brandId = data.brandId ? data.brandId.toLowerCase() : '';
     }

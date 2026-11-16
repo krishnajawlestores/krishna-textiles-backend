@@ -1,6 +1,7 @@
 ﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomCacheService } from '../cache/custom-cache.service';
+import { SettingsService } from '../settings/settings.service';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -11,6 +12,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cache: CustomCacheService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   async onModuleInit() {
@@ -355,9 +357,22 @@ export class OrdersService {
       });
     }
 
-    const taxAmount = Math.round(subtotal * 0.05); // 5% GST
-    const discountAmount = 0;
-    const totalAmount = subtotal + taxAmount - discountAmount;
+    // Fetch dynamic store settings (GST, discount, minimum order value)
+    const settings = await this.settingsService.getSettings();
+    const minOrderVal = Number(settings.minOrderValue) || 2999;
+    if (subtotal < minOrderVal) {
+      throw new BadRequestException(
+        `Minimum order value is ₹${minOrderVal.toLocaleString('en-IN')}. Your cart subtotal is ₹${subtotal.toLocaleString('en-IN')}. Please add more items to proceed to checkout.`
+      );
+    }
+
+    const discountRate = Number(settings.defaultDiscountRate) !== undefined ? Number(settings.defaultDiscountRate) : 5.0;
+    const gstRate = Number(settings.gstRate) !== undefined ? Number(settings.gstRate) : 5.0;
+
+    const discountAmount = Math.round((subtotal * discountRate) / 100);
+    const taxableAmount = Math.max(0, subtotal - discountAmount);
+    const taxAmount = Math.round((taxableAmount * gstRate) / 100);
+    const totalAmount = taxableAmount + taxAmount;
 
     const resolvedPaymentStatus = data.paymentStatus || PaymentStatus.UNPAID;
 
@@ -378,6 +393,8 @@ export class OrdersService {
         subtotal,
         taxAmount,
         discountAmount,
+        gstRate,
+        discountRate,
         totalAmount,
         notes: data.notes || null,
         razorpayOrderId: data.razorpayOrderId || null,
@@ -397,16 +414,32 @@ export class OrdersService {
       include: { items: { include: { product: true } }, customer: true, history: true },
     });
 
-    // Safely deduct stock for valid products & create audit log
+    // Safely deduct stock for valid products & size-variants & create audit log
     for (const item of validatedLineItems) {
       if (item.productId) {
         try {
           const prod = await this.prisma.product.findUnique({ where: { id: item.productId } });
           if (prod) {
-            const newStock = Math.max(0, prod.stock - item.quantity);
+            let updatedVariants = prod.sizeVariants as any[];
+            let newStock = Math.max(0, prod.stock - item.quantity);
+
+            if (Array.isArray(updatedVariants) && updatedVariants.length > 0 && item.size) {
+              updatedVariants = updatedVariants.map((v: any) => {
+                if (String(v.size).toLowerCase() === String(item.size).toLowerCase()) {
+                  const vStock = Number(v.stock) || 0;
+                  return { ...v, stock: Math.max(0, vStock - item.quantity) };
+                }
+                return v;
+              });
+              newStock = updatedVariants.reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+            }
+
             await this.prisma.product.update({
               where: { id: prod.id },
-              data: { stock: newStock },
+              data: {
+                stock: newStock,
+                sizeVariants: updatedVariants || prod.sizeVariants,
+              },
             });
             await this.prisma.inventoryAudit.create({
               data: {
@@ -415,7 +448,7 @@ export class OrdersService {
                 newStock,
                 delta: -item.quantity,
                 reason: 'Sale',
-                note: `Order #${orderNumber} confirmation deduction.`,
+                note: `Order #${orderNumber} (${item.size || 'Std'}) confirmation deduction.`,
                 createdBy: 'Order Engine',
               },
             });
@@ -641,18 +674,25 @@ export class OrdersService {
 
   async getInvoiceData(id: string) {
     const order = await this.findOne(id);
+    const settings = await this.settingsService.getSettings();
     return {
       company: {
-        name: 'Krishna Jawli Stores Pvt Ltd',
-        tagline: 'Leading Textile Manufacturers & Hosiery Wholesalers',
-        gstin: '33AAACK9911D1ZX',
-        pan: 'AAACK9911D',
-        address: '88/4, Tiruppur Main Textile Complex',
-        city: 'Tiruppur',
-        state: 'Tamil Nadu - 641604',
-        phone: '+91 421 249 8899',
-        email: 'billing@krishnatextiles.com',
-        website: 'www.krishnatextiles.com',
+        name: settings.companyName,
+        tagline: settings.companyTagline,
+        gstin: settings.companyGstin,
+        pan: settings.companyPan,
+        address: settings.companyAddress,
+        city: settings.companyCity,
+        state: settings.companyState,
+        pincode: settings.companyPincode,
+        phone: settings.companyPhone,
+        email: settings.companyEmail,
+        website: settings.companyWebsite,
+      },
+      settings: {
+        gstRate: settings.gstRate,
+        defaultDiscountRate: settings.defaultDiscountRate,
+        minOrderValue: settings.minOrderValue,
       },
       order,
     };

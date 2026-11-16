@@ -48,6 +48,7 @@ export class InventoryController {
       delta: Number(body.delta),
       reason: body.reason,
       note: body.note,
+      size: body.size,
       createdBy,
     });
     return {

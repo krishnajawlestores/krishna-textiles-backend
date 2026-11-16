@@ -125,6 +125,7 @@ model Product {
   imageUrl      String?
   images        String[]         @default([])
   colors        Json?            @default("[]")
+  sizeVariants  Json?            @default("[]")
   bestSeller    Boolean          @default(false)
   description   String?
   sizes         String[]
@@ -207,6 +208,8 @@ model Order {
   subtotal        Float
   taxAmount       Float               @default(0)
   discountAmount  Float               @default(0)
+  gstRate         Float               @default(5.0)
+  discountRate    Float               @default(5.0)
   couponCode      String?
   totalAmount     Float
   paymentStatus   PaymentStatus       @default(UNPAID)
@@ -306,4 +309,27 @@ model Offer {
 
   @@index([isActive])
   @@index([targetType])
+}
+
+model StoreSetting {
+  id                    String   @id @default("default")
+  companyName           String   @default("Krishna Jawli Stores Pvt Ltd")
+  companyTagline        String   @default("Leading Textile Manufacturers & Hosiery Wholesalers")
+  companyAddress        String   @default("88/4, Tiruppur Main Textile Complex")
+  companyCity           String   @default("Tiruppur")
+  companyState          String   @default("Tamil Nadu - 641604")
+  companyPincode        String   @default("641604")
+  companyPhone          String   @default("+91 421 249 8899")
+  companyEmail          String   @default("billing@krishnatextiles.com")
+  companyGstin          String   @default("33AAACK9911D1ZX")
+  companyPan            String   @default("AAACK9911D")
+  companyWebsite        String   @default("www.krishnatextiles.com")
+
+  gstRate               Float    @default(5.0)
+  defaultDiscountRate   Float    @default(5.0)
+  minOrderValue         Float    @default(2999.0)
+  freeShippingThreshold Float    @default(999.0)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
