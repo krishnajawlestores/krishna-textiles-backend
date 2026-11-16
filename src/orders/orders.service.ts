@@ -1,4 +1,4 @@
-﻿import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomCacheService } from '../cache/custom-cache.service';
 import { SettingsService } from '../settings/settings.service';

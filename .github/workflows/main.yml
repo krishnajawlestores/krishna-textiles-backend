@@ -92,6 +92,13 @@ jobs:
           # Do not print or expose its secrets.
           test -f "$ENV_FILE"
 
+          # Push database schema migrations to ensure all tables and columns exist
+          docker run --rm \
+            --network ecommerce-network \
+            --env-file "$ENV_FILE" \
+            "$NEW_TAG" \
+            npx prisma db push --skip-generate || true
+
           # Replace the backend container while preserving PostgreSQL.
           docker rm -f krishna-backend
 
