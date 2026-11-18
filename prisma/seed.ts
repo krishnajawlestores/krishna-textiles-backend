@@ -1,6 +1,11 @@
 import { PrismaClient, Role, CustomerType, OrderStatus, PaymentStatus, CouponType, OfferTarget } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
+// Sample data must never overwrite live store records.
+if (process.env.NODE_ENV !== 'development' || process.env.ALLOW_DEMO_SEED !== 'true') {
+  throw new Error('Demo seeding is disabled. Use an isolated development database with NODE_ENV=development and ALLOW_DEMO_SEED=true.');
+}
+
 const prisma = new PrismaClient();
 
 async function main() {

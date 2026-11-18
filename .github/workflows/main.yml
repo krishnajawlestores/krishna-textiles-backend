@@ -92,12 +92,16 @@ jobs:
           # Do not print or expose its secrets.
           test -f "$ENV_FILE"
 
-          # Push database schema migrations to ensure all tables and columns exist
+          # Synchronize schema without allowing data-loss overrides.
+          # Stop before replacing the running backend if Prisma rejects the change.
+          # The production image may omit Prisma source files; mount this commit's schema.
+          test -f "$APP/prisma/schema.prisma"
           docker run --rm \
             --network ecommerce-network \
             --env-file "$ENV_FILE" \
+            --mount "type=bind,source=$APP/prisma,target=/app/prisma,readonly" \
             "$NEW_TAG" \
-            npx prisma db push --skip-generate || true
+            npx prisma db push --schema=/app/prisma/schema.prisma --skip-generate
 
           # Replace the backend container while preserving PostgreSQL.
           docker rm -f krishna-backend
