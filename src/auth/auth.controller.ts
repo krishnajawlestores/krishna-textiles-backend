@@ -1,3 +1,5 @@
+import { ChangePasswordDto } from './change-password.dto';
+import { Roles, RolesGuard } from './guards/roles.guard';
 import { Controller, Post, Body, Get, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -66,6 +68,15 @@ export class AuthController {
       ipAddress: Array.isArray(ipAddress) ? ipAddress[0] : ipAddress,
       userAgent,
     });
+  }
+
+  @Post('change-password')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change own admin password and sign out other sessions' })
+  async changePassword(@Body() body: ChangePasswordDto, @Req() req: any) {
+    return this.authService.changePassword(req.user.id, req.session.id, body.currentPassword, body.newPassword);
   }
 
   @Post('logout')

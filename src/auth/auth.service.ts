@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionService } from '../session/session.service';
@@ -57,6 +57,37 @@ export class AuthService {
         avatar: user.avatar,
       },
     };
+  }
+
+  async changePassword(userId: string, currentSessionId: string, currentPassword: string, newPassword: string) {
+    if (typeof currentPassword !== 'string' || !currentPassword ||
+        typeof newPassword !== 'string' || Array.from(newPassword).length < 8 ||
+        Buffer.byteLength(newPassword, 'utf8') > 72) {
+      throw new BadRequestException('New password must be at least 8 characters and at most 72 UTF-8 bytes.');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Account not found.');
+    if (user.role !== 'ADMIN') throw new ForbiddenException('Only administrators can use this option.');
+    if (!await bcrypt.compare(currentPassword, user.passwordHash)) {
+      throw new BadRequestException('Current password is incorrect.');
+    }
+    if (await bcrypt.compare(newPassword, user.passwordHash)) {
+      throw new BadRequestException('New password must be different from the current password.');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await this.prisma.$transaction(async tx => {
+      // Compare the original hash to prevent concurrent requests overwriting a newer password.
+      const updated = await tx.user.updateMany({
+        where: { id: userId, role: 'ADMIN', passwordHash: user.passwordHash },
+        data: { passwordHash },
+      });
+      if (updated.count !== 1) throw new ConflictException('Account changed. Please try again.');
+      await tx.session.updateMany({
+        where: { userId, id: { not: currentSessionId }, isValid: true },
+        data: { isValid: false, revokedReason: 'PASSWORD_CHANGED' },
+      });
+    });
+    return { success: true, message: 'Password changed successfully. Other sessions have been signed out.' };
   }
 
   async logout(token: string) {
