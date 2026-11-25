@@ -1,8 +1,13 @@
+import { UseGuards } from '@nestjs/common';
+import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AnalyticsService } from './analytics.service';
 
 @ApiTags('Analytics & Business Intelligence')
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles('ADMIN')
 @Controller('analytics')
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}

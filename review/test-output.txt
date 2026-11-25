@@ -1,0 +1,254 @@
+
+> krishna-textiles-backend@1.0.0 test
+> node --test -r ts-node/register test/*.test.cjs
+
+TAP version 13
+# Subtest: AUTH malformed header undefined fails before database lookup
+ok 1 - AUTH malformed header undefined fails before database lookup
+  ---
+  duration_ms: 23.9917
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "" fails before database lookup
+ok 2 - AUTH malformed header "" fails before database lookup
+  ---
+  duration_ms: 0.16
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer" fails before database lookup
+ok 3 - AUTH malformed header "Bearer" fails before database lookup
+  ---
+  duration_ms: 0.1584
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer " fails before database lookup
+ok 4 - AUTH malformed header "Bearer " fails before database lookup
+  ---
+  duration_ms: 0.1506
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer  abc" fails before database lookup
+ok 5 - AUTH malformed header "Bearer  abc" fails before database lookup
+  ---
+  duration_ms: 0.1148
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer abc " fails before database lookup
+ok 6 - AUTH malformed header "Bearer abc " fails before database lookup
+  ---
+  duration_ms: 0.0727
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer abc extra" fails before database lookup
+ok 7 - AUTH malformed header "Bearer abc extra" fails before database lookup
+  ---
+  duration_ms: 0.1335
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Basic abc" fails before database lookup
+ok 8 - AUTH malformed header "Basic abc" fails before database lookup
+  ---
+  duration_ms: 0.2381
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header ["Bearer abc"] fails before database lookup
+ok 9 - AUTH malformed header ["Bearer abc"] fails before database lookup
+  ---
+  duration_ms: 0.3525
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer\\tabc" fails before database lookup
+ok 10 - AUTH malformed header "Bearer\\tabc" fails before database lookup
+  ---
+  duration_ms: 0.2272
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: undefined
+ok 11 - AUTH invalid/revoked/expired/database failure fails closed: undefined
+  ---
+  duration_ms: 0.1374
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: false
+ok 12 - AUTH invalid/revoked/expired/database failure fails closed: false
+  ---
+  duration_ms: 0.07
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: true
+ok 13 - AUTH invalid/revoked/expired/database failure fails closed: true
+  ---
+  duration_ms: 0.1315
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: database unavailable
+ok 14 - AUTH invalid/revoked/expired/database failure fails closed: database unavailable
+  ---
+  duration_ms: 0.0567
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored unknown sessions
+ok 15 - SessionService validates stored unknown sessions
+  ---
+  duration_ms: 0.2025
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored revoked sessions
+ok 16 - SessionService validates stored revoked sessions
+  ---
+  duration_ms: 0.054
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored expired sessions
+ok 17 - SessionService validates stored expired sessions
+  ---
+  duration_ms: 0.0582
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored valid sessions
+ok 18 - SessionService validates stored valid sessions
+  ---
+  duration_ms: 0.0458
+  type: 'test'
+  ...
+# Subtest: T07-T11 product archive/restore hides all aliases, clears caches, preserves record
+ok 19 - T07-T11 product archive/restore hides all aliases, clears caches, preserves record
+  ---
+  duration_ms: 1.7204
+  type: 'test'
+  ...
+# Subtest: T10 categories rejects archive and PUT bypass with active dependencies
+ok 20 - T10 categories rejects archive and PUT bypass with active dependencies
+  ---
+  duration_ms: 0.9942
+  type: 'test'
+  ...
+# Subtest: T10 brands rejects archive and PUT bypass with active dependencies
+ok 21 - T10 brands rejects archive and PUT bypass with active dependencies
+  ---
+  duration_ms: 0.7786
+  type: 'test'
+  ...
+# Subtest: Inactive relations hide products and filtered counts use public visibility
+ok 22 - Inactive relations hide products and filtered counts use public visibility
+  ---
+  duration_ms: 0.3374
+  type: 'test'
+  ...
+# Subtest: Failed transaction never invalidates cache; conflicts are 409
+ok 23 - Failed transaction never invalidates cache; conflicts are 409
+  ---
+  duration_ms: 0.1714
+  type: 'test'
+  ...
+# Subtest: Catalogue rejects nested Prisma writes, invalid active flags, missing restore IDs
+ok 24 - Catalogue rejects nested Prisma writes, invalid active flags, missing restore IDs
+  ---
+  duration_ms: 0.36
+  type: 'test'
+  ...
+# Subtest: T05 service ignores ADMIN role; T12 legitimate login creates session
+ok 25 - T05 service ignores ADMIN role; T12 legitimate login creates session
+  ---
+  duration_ms: 183.0366
+  type: 'test'
+  ...
+# Subtest: Session ownership checks prevent revoking another user before mutation
+ok 26 - Session ownership checks prevent revoking another user before mutation
+  ---
+  duration_ms: 0.3113
+  type: 'test'
+  ...
+# Subtest: Session stats and audit history apply user scope in every query
+ok 27 - Session stats and audit history apply user scope in every query
+  ---
+  duration_ms: 0.2536
+  type: 'test'
+  ...
+# Subtest: T01-T04 HTTP guard order: 401/403 never mutates; ADMIN succeeds
+ok 28 - T01-T04 HTTP guard order: 401/403 never mutates; ADMIN succeeds
+  ---
+  duration_ms: 46.9855
+  type: 'test'
+  ...
+# Subtest: T05 HTTP registration rejects privilege input before service execution
+ok 29 - T05 HTTP registration rejects privilege input before service execution
+  ---
+  duration_ms: 2.4154
+  type: 'test'
+  ...
+# Subtest: T06 HTTP session endpoints require authentication and scope customer requests
+ok 30 - T06 HTTP session endpoints require authentication and scope customer requests
+  ---
+  duration_ms: 21.694
+  type: 'test'
+  ...
+# Subtest: T07-T09 HTTP catalogue archive/admin visibility/restore lifecycle
+ok 31 - T07-T09 HTTP catalogue archive/admin visibility/restore lifecycle
+  ---
+  duration_ms: 6.2033
+  type: 'test'
+  ...
+# Subtest: Administrative route inventory attaches authentication before role authorization
+ok 32 - Administrative route inventory attaches authentication before role authorization
+  ---
+  duration_ms: 1744.6392
+  type: 'test'
+  ...
+# Subtest: Legacy text-only catalogue relationships cannot bypass archive or restore checks
+ok 33 - Legacy text-only catalogue relationships cannot bypass archive or restore checks
+  ---
+  duration_ms: 0.6699
+  type: 'test'
+  ...
+# Subtest: Create and reassign cannot attach active products to archived dependencies
+ok 34 - Create and reassign cannot attach active products to archived dependencies
+  ---
+  duration_ms: 0.6999
+  type: 'test'
+  ...
+# Subtest: Orders scope list/detail/invoice to authenticated email and redact nested admin records
+ok 35 - Orders scope list/detail/invoice to authenticated email and redact nested admin records
+  ---
+  duration_ms: 0.6681
+  type: 'test'
+  ...
+# Subtest: Checkout DTO rejects paid status and nested privilege injection while accepting current storefront payload
+ok 36 - Checkout DTO rejects paid status and nested privilege injection while accepting current storefront payload
+  ---
+  duration_ms: 3.4579
+  type: 'test'
+  ...
+# Subtest: CMS public reads hide drafts; admin reads retain visibility without touching CMS file
+ok 37 - CMS public reads hide drafts; admin reads retain visibility without touching CMS file
+  ---
+  duration_ms: 0.4012
+  type: 'test'
+  ...
+# Subtest: Offers public isActive query cannot reveal inactive records; admin can view them
+ok 38 - Offers public isActive query cannot reveal inactive records; admin can view them
+  ---
+  duration_ms: 0.35
+  type: 'test'
+  ...
+# Subtest: Logout revokes the authenticated session and does not reparse header casing
+ok 39 - Logout revokes the authenticated session and does not reparse header casing
+  ---
+  duration_ms: 0.1065
+  type: 'test'
+  ...
+# Subtest: Administrative order DTOs reject invalid enums, dates and unexpected fields
+ok 40 - Administrative order DTOs reject invalid enums, dates and unexpected fields
+  ---
+  duration_ms: 0.8492
+  type: 'test'
+  ...
+1..40
+# tests 40
+# suites 0
+# pass 40
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5479.9976

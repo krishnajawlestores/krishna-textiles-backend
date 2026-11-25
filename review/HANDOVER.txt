@@ -1,0 +1,169 @@
+Latest incremental audit: see review/REQUIREMENTS_REVIEW.txt (78 passing tests).
+The original implementation handover below is retained for history.
+
+Krishna Textiles backend application-code handover
+Date: 25 November 2026
+
+Implemented from Krishna_Textiles_Backend_Code_Changes_Codex_Requirements.pdf.
+Working-tree changes only; no commit, push, deployment, database connection, schema
+edit, migration, db push, seed, wipe, restore, or production-data operation performed.
+
+AUTHENTICATION AND AUTHORIZATION
+- Removed getDefaultAdminSession after searching its references. The guard requires
+  exactly one non-whitespace Bearer token, validates the stored session, and returns
+  401 on missing/malformed/unknown/expired/revoked tokens or validation errors.
+- Existing login, JWT issuance and persistent sessions remain. Existing sessions were
+  not invalidated. Logout now derives the token from the authenticated session.
+- Registration DTO rejects role and unknown fields (400); AuthService always assigns
+  CUSTOMER even if called directly with role=ADMIN. No public admin bootstrap added.
+- Existing SessionAuthGuard/JwtAuthGuard run before RolesGuard on admin routes.
+  Authenticated CUSTOMER requests receive 403 before admin handlers execute.
+- All inventory, CRM, analytics, cache and upload routes require ADMIN. Catalogue,
+  coupon, offer, CMS and settings mutations and order status/payment updates require
+  ADMIN. Coupon list/detail are ADMIN-only; coupon validation remains public.
+- Global body validation rejects privilege-bearing fields recursively. Registration,
+  checkout and session DTOs reject unknown fields. Catalogue and CRM updates reject
+  nested Prisma writes. Order updates validate enums and ISO dates.
+
+SESSION API (all paths below have /api prefix)
+- GET /session/active, /session/all, /session/stats: customers see only their own
+  scope. A different userId is 403. ADMIN can see global results or filter by userId.
+- DELETE /session/:id: customer can revoke only their own session; ADMIN can revoke
+  any session. Missing sessions return 404. Responses retain envelopes without token.
+- POST /session/revoke-others: userId/currentToken are optional compatibility fields;
+  if present they must match authentication. Both identity and token used by the
+  service come from the authenticated request, including for ADMIN.
+- POST /session/revoke-all: defaults to current user. A supplied different userId is
+  allowed only for ADMIN. All session list/revocation responses omit raw tokens.
+
+CATALOGUE API
+- DELETE /products/:id, /categories/:id, /brands/:id archives using isActive=false;
+  existing success/message shapes remain, with archive wording.
+- POST /products/:id/restore returns {success:true,data:product}.
+- POST /categories/:id/restore and /brands/:id/restore return the restored record,
+  following their existing create/update response conventions.
+- GET /products/admin, /categories/admin, /brands/admin require ADMIN and accept
+  isActive=true|false|all (omitted means all). Product filters/pagination still apply.
+- GET /products/admin/:id, /categories/admin/:id, /brands/admin/:id expose archived
+  details to ADMIN. Existing public list/detail routes always hide inactive records,
+  even when an admin token or isActive=false query is supplied.
+- Public product ID/slug/SKU lookup, search and counts exclude archived products and
+  products with inactive category/brand relationships, including legacy text-only
+  relationships. Public category/brand counts include only publicly visible products.
+- Archiving category/brand with active dependencies returns 409. The same policy
+  applies to PUT isActive=false. No cascades or bulk destructive routes were added;
+  no existing standalone catalogue bulk-delete route was found.
+- Product create/update/restore checks related category/brand usability. Archive and
+  restore are idempotent for existing records; missing IDs return 404. Serializable
+  transactions prevent concurrent catalogue writes bypassing dependency checks;
+  serialization conflicts return 409 with retry guidance, unique conflicts return 409.
+- Product/category/brand/analytics/inventory cache prefixes invalidate after commit.
+  Public product detail reads now query the database rather than reuse old cached
+  objects, preventing stale or admin-populated cache entries exposing archived data.
+
+OTHER FRONTEND CONTRACT CHANGES
+- GET /orders, /orders/:id, /orders/:id/invoice require authentication. ADMIN retains
+  full access. Customer results are limited by authenticated account email; client
+  customerId/phone filters cannot expand that scope. A different requested email or
+  another customer's detail/invoice is denied with 403.
+- Customer order history/invoices omit the related CRM record, payment proof/notes
+  and signature. Item snapshots remain; live nested product is null to avoid leaking
+  archived catalogue data. Public checkout responses omit sensitive related fields.
+- Guest order placement and public Razorpay endpoints remain. Checkout allows only
+  UNPAID input (the existing storefront sends this); privileged payment/customer-ID
+  injection is 400. Product IDs must resolve to publicly available products.
+- Public offers only expose active offers. Use GET /offers/admin and
+  /offers/admin/:id for inactive offer administration.
+- Public CMS reads hide inactive banners, unpublished pages and inactive announcement
+  (announcement data becomes null). Use GET /cms/admin/banners, /cms/admin/pages and
+  /cms/admin/announcement for administrative visibility. Existing authorized CMS,
+  coupon and offer single-record delete behavior remains; unrelated features were
+  not redesigned.
+- Frontends were not modified. Admin list screens should switch to the new /admin
+  routes to manage archived/draft content and use the restore endpoints. Admin
+  registration UI must no longer depend on public role=ADMIN registration. Customer
+  order lookup/invoice requires the existing customer Bearer token; guest order
+  lookup now requires an authenticated matching account or admin assistance.
+
+ADMINISTRATOR PROVISIONING
+Use an existing ADMIN account through normal login. If no authorized ADMIN remains,
+the owner must approve a separate, narrowly scoped offline provisioning procedure:
+verify the operator and account identity, use an authorized maintenance environment,
+create/promote only the approved account, record the change, and test normal login.
+No provisioning endpoint/tool or database write was added or performed. The existing
+seed script is not an operational recovery procedure for this task and was not run.
+
+VALIDATION
+npm test: PASS, 40 tests, 40 passed, 0 failed/skipped.
+npm run typecheck: PASS (tsc --noEmit --incremental false).
+npm run build: PASS (existing prisma generate && nest build).
+git diff --check: PASS.
+No pre-existing test suite, lint script, or ESLint configuration was present. Added
+Node's built-in test runner using the existing ts-node dependency, with no new npm
+dependencies. Full command outputs are in review/test-output.txt,
+review/typecheck-output.txt and review/build-output.txt.
+
+Tests cover T01-T12, all administrative route guard metadata/order, HTTP 401/403/200
+behavior, registration role injection, ownership scope, cache invalidation, archive/
+restore and dependency conflicts, legacy text references, nested-write rejection,
+checkout DTO regression, CMS/offer visibility, order scoping and logout.
+
+TESTING LIMITS AND FOLLOW-UP
+HTTP tests run real Nest controllers/guards with mocked persistence; service tests
+use an in-memory Prisma double. No real PostgreSQL concurrency, production dataset,
+S3, Razorpay, browser UI or deployment was exercised. Transaction isolation behavior
+should also be checked against an isolated PostgreSQL environment before deployment.
+The existing PrismaService startup code executes schema DDL, and other startup code
+can write records; full AppModule startup was deliberately not run or changed.
+Customer-order ownership uses existing account email because the schema has no User
+ownership relation on Order. Stronger verified-identity/ownership design is separate
+owner-approved work. This change is not a full payment/security architecture audit.
+All requested application changes fit the existing schema; database recovery and
+administrator provisioning remain separate owner-controlled operations.
+
+An automatic approval review rejected an optional duplicate-guard cleanup because
+it interpreted it as removal of controller security. That cleanup was abandoned;
+all controller and method guards remain, with no requested feature blocked.
+
+REVIEW ARTIFACT
+review/backend-changes.patch contains the application and test diff, including new
+files. It excludes generated build metadata and review artifacts themselves.
+Base commit: 08694b78a45859127ccc8f2885d015a6b98a6138
+No new commit was created.
+
+CHANGED APPLICATION/TEST FILES
+package.json
+src/analytics/analytics.controller.ts
+src/auth/auth.controller.ts
+src/auth/auth.service.ts
+src/auth/guards/session-auth.guard.ts
+src/brands/brands.controller.ts
+src/brands/brands.service.ts
+src/cache/cache.controller.ts
+src/categories/categories.controller.ts
+src/categories/categories.service.ts
+src/cms/cms.controller.ts
+src/cms/cms.service.ts
+src/coupons/coupons.controller.ts
+src/crm/crm.controller.ts
+src/crm/crm.service.ts
+src/inventory/inventory.controller.ts
+src/main.ts
+src/offers/offers.controller.ts
+src/offers/offers.service.ts
+src/orders/orders.controller.ts
+src/orders/orders.service.ts
+src/products/products.controller.ts
+src/products/products.service.ts
+src/session/session.controller.ts
+src/session/session.service.ts
+src/settings/settings.controller.ts
+src/upload/upload.controller.ts
+src/auth/privilege-fields.pipe.ts
+src/catalogue/catalogue-policy.ts
+src/catalogue/validation.ts
+src/orders/order.dto.ts
+test/security.test.cjs
+
+Review files: review/HANDOVER.txt, review/backend-changes.patch,
+review/test-output.txt, review/typecheck-output.txt, review/build-output.txt.

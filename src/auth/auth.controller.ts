@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Req, UseGuards, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { SessionAuthGuard } from './guards/session-auth.guard';
@@ -37,13 +37,11 @@ export class RegisterDto {
   @IsString()
   phone?: string;
 
-  @ApiProperty({ example: 'ADMIN', required: false })
-  @IsOptional()
-  role?: any;
 }
 
 @ApiTags('Authentication')
 @Controller('auth')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
@@ -60,7 +58,7 @@ export class AuthController {
   }
 
   @Post('register')
-  @ApiOperation({ summary: 'Register a new staff/admin/customer user' })
+  @ApiOperation({ summary: 'Register a new customer' })
   async register(@Body() body: RegisterDto, @Req() req: any) {
     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'];
@@ -71,10 +69,10 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(SessionAuthGuard)
   @ApiOperation({ summary: 'Logout and revoke the current active session' })
-  async logout(@Headers('authorization') authHeader: string) {
-    const token = authHeader ? authHeader.replace('Bearer ', '') : '';
-    return this.authService.logout(token);
+  async logout(@Req() req: any) {
+    return this.authService.logout(req.session.token);
   }
 
   @Get('profile')

@@ -6,9 +6,9 @@ import { OfferTarget, CouponType } from '@prisma/client';
 export class OffersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query?: { isActive?: string; targetType?: OfferTarget }) {
-    const where: any = {};
-    if (query?.isActive !== undefined && query.isActive !== '') {
+  async findAll(query?: { isActive?: string; targetType?: OfferTarget }, admin = false) {
+    const where: any = admin ? {} : { isActive: true };
+    if (admin && query?.isActive !== undefined && query.isActive !== '') {
       where.isActive = query.isActive === 'true';
     }
     if (query?.targetType) {
@@ -21,8 +21,8 @@ export class OffersService {
     });
   }
 
-  async findOne(id: string) {
-    const offer = await this.prisma.offer.findUnique({ where: { id } });
+  async findOne(id: string, admin = false) {
+    const offer = await this.prisma.offer.findFirst({ where: { id, ...(admin ? {} : { isActive: true }) } });
     if (!offer) throw new NotFoundException(`Offer '${id}' not found`);
     return offer;
   }

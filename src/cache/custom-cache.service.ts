@@ -56,7 +56,7 @@ export class CustomCacheService {
         count++;
       }
     }
-    this.logger.log(`Invalidated ${count} cache entries with prefix: "${prefix}"`);
+    this.logger.log(`Invalidated ${count} cache entries.`);
     return count;
   }
 

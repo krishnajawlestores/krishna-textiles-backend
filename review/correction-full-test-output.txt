@@ -1,0 +1,482 @@
+
+> krishna-textiles-backend@1.0.0 test
+> node --test -r ts-node/register test/*.test.cjs
+
+TAP version 13
+# Subtest: Section 5: POST /coupons/validate rejects invalid DTO before handler
+ok 1 - Section 5: POST /coupons/validate rejects invalid DTO before handler
+  ---
+  duration_ms: 1486.6349
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /coupons rejects invalid DTO before handler
+ok 2 - Section 5: POST /coupons rejects invalid DTO before handler
+  ---
+  duration_ms: 12.0833
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /coupons/id rejects invalid DTO before handler
+ok 3 - Section 5: PUT /coupons/id rejects invalid DTO before handler
+  ---
+  duration_ms: 4.061
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /offers rejects invalid DTO before handler
+ok 4 - Section 5: POST /offers rejects invalid DTO before handler
+  ---
+  duration_ms: 3.7716
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /offers/id rejects invalid DTO before handler
+ok 5 - Section 5: PUT /offers/id rejects invalid DTO before handler
+  ---
+  duration_ms: 4.1778
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /cms/banners rejects invalid DTO before handler
+ok 6 - Section 5: POST /cms/banners rejects invalid DTO before handler
+  ---
+  duration_ms: 3.245
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /cms/pages/id rejects invalid DTO before handler
+ok 7 - Section 5: PUT /cms/pages/id rejects invalid DTO before handler
+  ---
+  duration_ms: 3.3152
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /cms/announcement rejects invalid DTO before handler
+ok 8 - Section 5: PUT /cms/announcement rejects invalid DTO before handler
+  ---
+  duration_ms: 2.7829
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /crm/customers rejects invalid DTO before handler
+ok 9 - Section 5: POST /crm/customers rejects invalid DTO before handler
+  ---
+  duration_ms: 5.5351
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /crm/customers/id rejects invalid DTO before handler
+ok 10 - Section 5: PUT /crm/customers/id rejects invalid DTO before handler
+  ---
+  duration_ms: 3.3001
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /crm/customers/id/notes rejects invalid DTO before handler
+ok 11 - Section 5: POST /crm/customers/id/notes rejects invalid DTO before handler
+  ---
+  duration_ms: 2.6106
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /inventory/adjust rejects invalid DTO before handler
+ok 12 - Section 5: POST /inventory/adjust rejects invalid DTO before handler
+  ---
+  duration_ms: 2.4528
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /inventory/bulk-adjust rejects invalid DTO before handler
+ok 13 - Section 5: POST /inventory/bulk-adjust rejects invalid DTO before handler
+  ---
+  duration_ms: 2.5708
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /settings rejects invalid DTO before handler
+ok 14 - Section 5: PUT /settings rejects invalid DTO before handler
+  ---
+  duration_ms: 1.9592
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /upload/base64 rejects invalid DTO before handler
+ok 15 - Section 5: POST /upload/base64 rejects invalid DTO before handler
+  ---
+  duration_ms: 1.9659
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /cache/flush rejects invalid DTO before handler
+ok 16 - Section 5: POST /cache/flush rejects invalid DTO before handler
+  ---
+  duration_ms: 2.2811
+  type: 'test'
+  ...
+# Subtest: Section 5: unexpected identity/privilege fields are rejected on admin DTOs
+ok 17 - Section 5: unexpected identity/privilege fields are rejected on admin DTOs
+  ---
+  duration_ms: 5.2356
+  type: 'test'
+  ...
+# Subtest: AUTHZ: validation never replaces 401/403 authentication and role enforcement
+ok 18 - AUTHZ: validation never replaces 401/403 authentication and role enforcement
+  ---
+  duration_ms: 10.1608
+  type: 'test'
+  ...
+# Subtest: CAT07: existing form numbers, blank optional dates, empty CRM email and false booleans remain valid
+ok 19 - CAT07: existing form numbers, blank optional dates, empty CRM email and false booleans remain valid
+  ---
+  duration_ms: 7.7907
+  type: 'test'
+  ...
+# Subtest: CAT07: announcement editor can round-trip metadata without changing server fields
+ok 20 - CAT07: announcement editor can round-trip metadata without changing server fields
+  ---
+  duration_ms: 2.1202
+  type: 'test'
+  ...
+# Subtest: CAT07: product variant SKU is accepted; null required fields and nested operations are rejected
+ok 21 - CAT07: product variant SKU is accepted; null required fields and nested operations are rejected
+  ---
+  duration_ms: 0.8932
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2002 returns safe HTTP status
+ok 22 - Section 5: persistence P2002 returns safe HTTP status
+  ---
+  duration_ms: 1.9348
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2003 returns safe HTTP status
+ok 23 - Section 5: persistence P2003 returns safe HTTP status
+  ---
+  duration_ms: 1.6462
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2034 returns safe HTTP status
+ok 24 - Section 5: persistence P2034 returns safe HTTP status
+  ---
+  duration_ms: 1.7004
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2025 returns safe HTTP status
+ok 25 - Section 5: persistence P2025 returns safe HTTP status
+  ---
+  duration_ms: 1.6928
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2000 returns safe HTTP status
+ok 26 - Section 5: persistence P2000 returns safe HTTP status
+  ---
+  duration_ms: 1.7084
+  type: 'test'
+  ...
+# Subtest: Section 5: Prisma validation errors return 400 without raw request data
+ok 27 - Section 5: Prisma validation errors return 400 without raw request data
+  ---
+  duration_ms: 2.1112
+  type: 'test'
+  ...
+# Subtest: T01/T02: real SessionService rejects missing, unknown, expired, revoked tokens and database failure over HTTP
+ok 28 - T01/T02: real SessionService rejects missing, unknown, expired, revoked tokens and database failure over HTTP
+  ---
+  duration_ms: 4.1539
+  type: 'test'
+  ...
+# Subtest: SESS/T06: real service denies cross-user DELETE before any revocation; admin can revoke it
+ok 29 - SESS/T06: real service denies cross-user DELETE before any revocation; admin can revoke it
+  ---
+  duration_ms: 9.1979
+  type: 'test'
+  ...
+# Subtest: SESS: real revoke-others derives identity, retains current session, leaves other users unchanged
+ok 30 - SESS: real revoke-others derives identity, retains current session, leaves other users unchanged
+  ---
+  duration_ms: 4.7673
+  type: 'test'
+  ...
+# Subtest: SESS: real revoke-all requires admin for another user and does not revoke the acting admin
+ok 31 - SESS: real revoke-all requires admin for another user and does not revoke the acting admin
+  ---
+  duration_ms: 2.8125
+  type: 'test'
+  ...
+# Subtest: T12: real login, JWT issuance, persistent session, profile and logout flow over HTTP
+ok 32 - T12: real login, JWT issuance, persistent session, profile and logout flow over HTTP
+  ---
+  duration_ms: 19.3349
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: upload success and provider failure never log filename/URL/error payload
+ok 33 - Sensitive logging: upload success and provider failure never log filename/URL/error payload
+  ---
+  duration_ms: 1.0444
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: CMS errors and cache prefixes are not echoed
+ok 34 - Sensitive logging: CMS errors and cache prefixes are not echoed
+  ---
+  duration_ms: 0.4386
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: existing Prisma startup error is sanitized without executing SQL
+ok 35 - Sensitive logging: existing Prisma startup error is sanitized without executing SQL
+  ---
+  duration_ms: 0.4022
+  type: 'test'
+  ...
+# Subtest: Section 5: duplicate coupon/customer conflicts are 409 and do not write
+ok 36 - Section 5: duplicate coupon/customer conflicts are 409 and do not write
+  ---
+  duration_ms: 0.5294
+  type: 'test'
+  ...
+# Subtest: Section 5: authorization exceptions are never converted to success or persistence errors
+ok 37 - Section 5: authorization exceptions are never converted to success or persistence errors
+  ---
+  duration_ms: 1.9948
+  type: 'test'
+  ...
+# Subtest: CAT07: transformed announcement metadata leaves existing record identity intact
+ok 38 - CAT07: transformed announcement metadata leaves existing record identity intact
+  ---
+  duration_ms: 0.5296
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header undefined fails before database lookup
+ok 39 - AUTH malformed header undefined fails before database lookup
+  ---
+  duration_ms: 26.5389
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "" fails before database lookup
+ok 40 - AUTH malformed header "" fails before database lookup
+  ---
+  duration_ms: 0.3078
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer" fails before database lookup
+ok 41 - AUTH malformed header "Bearer" fails before database lookup
+  ---
+  duration_ms: 0.2562
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer " fails before database lookup
+ok 42 - AUTH malformed header "Bearer " fails before database lookup
+  ---
+  duration_ms: 0.1068
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer  abc" fails before database lookup
+ok 43 - AUTH malformed header "Bearer  abc" fails before database lookup
+  ---
+  duration_ms: 0.1585
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer abc " fails before database lookup
+ok 44 - AUTH malformed header "Bearer abc " fails before database lookup
+  ---
+  duration_ms: 0.0885
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer abc extra" fails before database lookup
+ok 45 - AUTH malformed header "Bearer abc extra" fails before database lookup
+  ---
+  duration_ms: 0.1391
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Basic abc" fails before database lookup
+ok 46 - AUTH malformed header "Basic abc" fails before database lookup
+  ---
+  duration_ms: 0.1883
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header ["Bearer abc"] fails before database lookup
+ok 47 - AUTH malformed header ["Bearer abc"] fails before database lookup
+  ---
+  duration_ms: 0.373
+  type: 'test'
+  ...
+# Subtest: AUTH malformed header "Bearer\\tabc" fails before database lookup
+ok 48 - AUTH malformed header "Bearer\\tabc" fails before database lookup
+  ---
+  duration_ms: 0.2677
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: undefined
+ok 49 - AUTH invalid/revoked/expired/database failure fails closed: undefined
+  ---
+  duration_ms: 0.2723
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: false
+ok 50 - AUTH invalid/revoked/expired/database failure fails closed: false
+  ---
+  duration_ms: 0.0731
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: true
+ok 51 - AUTH invalid/revoked/expired/database failure fails closed: true
+  ---
+  duration_ms: 0.0525
+  type: 'test'
+  ...
+# Subtest: AUTH invalid/revoked/expired/database failure fails closed: database unavailable
+ok 52 - AUTH invalid/revoked/expired/database failure fails closed: database unavailable
+  ---
+  duration_ms: 0.0578
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored unknown sessions
+ok 53 - SessionService validates stored unknown sessions
+  ---
+  duration_ms: 0.2442
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored revoked sessions
+ok 54 - SessionService validates stored revoked sessions
+  ---
+  duration_ms: 0.0634
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored expired sessions
+ok 55 - SessionService validates stored expired sessions
+  ---
+  duration_ms: 0.0651
+  type: 'test'
+  ...
+# Subtest: SessionService validates stored valid sessions
+ok 56 - SessionService validates stored valid sessions
+  ---
+  duration_ms: 0.053
+  type: 'test'
+  ...
+# Subtest: T07-T11 product archive/restore hides all aliases, clears caches, preserves record
+ok 57 - T07-T11 product archive/restore hides all aliases, clears caches, preserves record
+  ---
+  duration_ms: 1.9177
+  type: 'test'
+  ...
+# Subtest: T10 categories rejects archive and PUT bypass with active dependencies
+ok 58 - T10 categories rejects archive and PUT bypass with active dependencies
+  ---
+  duration_ms: 1.1912
+  type: 'test'
+  ...
+# Subtest: T10 brands rejects archive and PUT bypass with active dependencies
+ok 59 - T10 brands rejects archive and PUT bypass with active dependencies
+  ---
+  duration_ms: 0.853
+  type: 'test'
+  ...
+# Subtest: Inactive relations hide products and filtered counts use public visibility
+ok 60 - Inactive relations hide products and filtered counts use public visibility
+  ---
+  duration_ms: 0.3881
+  type: 'test'
+  ...
+# Subtest: Failed transaction never invalidates cache; conflicts are 409
+ok 61 - Failed transaction never invalidates cache; conflicts are 409
+  ---
+  duration_ms: 0.2033
+  type: 'test'
+  ...
+# Subtest: Catalogue rejects nested Prisma writes, invalid active flags, missing restore IDs
+ok 62 - Catalogue rejects nested Prisma writes, invalid active flags, missing restore IDs
+  ---
+  duration_ms: 0.4067
+  type: 'test'
+  ...
+# Subtest: T05 service ignores ADMIN role; T12 legitimate login creates session
+ok 63 - T05 service ignores ADMIN role; T12 legitimate login creates session
+  ---
+  duration_ms: 196.6901
+  type: 'test'
+  ...
+# Subtest: Session ownership checks prevent revoking another user before mutation
+ok 64 - Session ownership checks prevent revoking another user before mutation
+  ---
+  duration_ms: 0.3793
+  type: 'test'
+  ...
+# Subtest: Session stats and audit history apply user scope in every query
+ok 65 - Session stats and audit history apply user scope in every query
+  ---
+  duration_ms: 0.2653
+  type: 'test'
+  ...
+# Subtest: T01-T04 HTTP guard order: 401/403 never mutates; ADMIN succeeds
+ok 66 - T01-T04 HTTP guard order: 401/403 never mutates; ADMIN succeeds
+  ---
+  duration_ms: 49.8696
+  type: 'test'
+  ...
+# Subtest: T05 HTTP registration rejects privilege input before service execution
+ok 67 - T05 HTTP registration rejects privilege input before service execution
+  ---
+  duration_ms: 2.389
+  type: 'test'
+  ...
+# Subtest: T06 HTTP session endpoints require authentication and scope customer requests
+ok 68 - T06 HTTP session endpoints require authentication and scope customer requests
+  ---
+  duration_ms: 23.8309
+  type: 'test'
+  ...
+# Subtest: T07-T09 HTTP catalogue archive/admin visibility/restore lifecycle
+ok 69 - T07-T09 HTTP catalogue archive/admin visibility/restore lifecycle
+  ---
+  duration_ms: 8.0688
+  type: 'test'
+  ...
+# Subtest: Administrative route inventory attaches authentication before role authorization
+ok 70 - Administrative route inventory attaches authentication before role authorization
+  ---
+  duration_ms: 1486.7061
+  type: 'test'
+  ...
+# Subtest: Legacy text-only catalogue relationships cannot bypass archive or restore checks
+ok 71 - Legacy text-only catalogue relationships cannot bypass archive or restore checks
+  ---
+  duration_ms: 0.6781
+  type: 'test'
+  ...
+# Subtest: Create and reassign cannot attach active products to archived dependencies
+ok 72 - Create and reassign cannot attach active products to archived dependencies
+  ---
+  duration_ms: 0.5593
+  type: 'test'
+  ...
+# Subtest: Orders scope list/detail/invoice to authenticated email and redact nested admin records
+ok 73 - Orders scope list/detail/invoice to authenticated email and redact nested admin records
+  ---
+  duration_ms: 0.6696
+  type: 'test'
+  ...
+# Subtest: Checkout DTO rejects paid status and nested privilege injection while accepting current storefront payload
+ok 74 - Checkout DTO rejects paid status and nested privilege injection while accepting current storefront payload
+  ---
+  duration_ms: 3.1552
+  type: 'test'
+  ...
+# Subtest: CMS public reads hide drafts; admin reads retain visibility without touching CMS file
+ok 75 - CMS public reads hide drafts; admin reads retain visibility without touching CMS file
+  ---
+  duration_ms: 0.4142
+  type: 'test'
+  ...
+# Subtest: Offers public isActive query cannot reveal inactive records; admin can view them
+ok 76 - Offers public isActive query cannot reveal inactive records; admin can view them
+  ---
+  duration_ms: 0.3265
+  type: 'test'
+  ...
+# Subtest: Logout revokes the authenticated session and does not reparse header casing
+ok 77 - Logout revokes the authenticated session and does not reparse header casing
+  ---
+  duration_ms: 0.0999
+  type: 'test'
+  ...
+# Subtest: Administrative order DTOs reject invalid enums, dates and unexpected fields
+ok 78 - Administrative order DTOs reject invalid enums, dates and unexpected fields
+  ---
+  duration_ms: 0.8833
+  type: 'test'
+  ...
+1..78
+# tests 78
+# suites 0
+# pass 78
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5429.5061

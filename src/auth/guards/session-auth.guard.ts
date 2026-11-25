@@ -9,18 +9,19 @@ export class SessionAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers['authorization'];
 
-    let session = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      session = await this.sessionService.validateSession(token);
+    if (typeof authHeader !== 'string' || !/^Bearer [^\s]+$/i.test(authHeader)) {
+      throw new UnauthorizedException('A valid Bearer token is required.');
     }
 
-    if (!session) {
-      session = await this.sessionService.getDefaultAdminSession();
+    let session;
+    try {
+      session = await this.sessionService.validateSession(authHeader.slice(7));
+    } catch {
+      throw new UnauthorizedException('Session validation failed.');
     }
-
-    if (!session) {
-      throw new UnauthorizedException('Authentication required. Missing Bearer token.');
+    const expiresAt = new Date(session?.expiresAt).getTime();
+    if (!session?.user || !session.isValid || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      throw new UnauthorizedException('Invalid or expired session.');
     }
 
     // Attach user and session to request

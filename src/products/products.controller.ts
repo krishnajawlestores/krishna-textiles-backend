@@ -1,9 +1,14 @@
+import { UseFilters } from '@nestjs/common';
+import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
+import { activeFilter } from '../catalogue/catalogue-policy';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ProductsService } from './products.service';
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 
 @ApiTags('Catalog & Products')
+@UseFilters(PersistenceExceptionFilter)
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -58,6 +63,28 @@ export class ProductsController {
     return { success: true, data };
   }
 
+  @Get('admin')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async findAdmin(@Query() query: any) {
+    const result = await this.productsService.findAll({ ...query, isActive: activeFilter(query.isActive) }, true);
+    return { success: true, data: result.products, total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages };
+  }
+
+  @Get('admin/:id')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async findAdminOne(@Param('id') id: string) {
+    return { success: true, data: await this.productsService.findOne(id, true) };
+  }
+
+  @Post(':id/restore')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async restore(@Param('id') id: string) {
+    return { success: true, data: await this.productsService.restore(id) };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get single product details by ID or Slug' })
   async findOne(@Param('id') id: string) {
@@ -66,7 +93,8 @@ export class ProductsController {
   }
 
   @Post()
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new product' })
   async create(@Body() body: any) {
@@ -79,7 +107,8 @@ export class ProductsController {
   }
 
   @Put(':id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update product details' })
   async update(@Param('id') id: string, @Body() body: any) {
@@ -92,9 +121,10 @@ export class ProductsController {
   }
 
   @Delete(':id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Delete product' })
+  @ApiOperation({ summary: 'Archive product' })
   async remove(@Param('id') id: string) {
     return this.productsService.remove(id);
   }

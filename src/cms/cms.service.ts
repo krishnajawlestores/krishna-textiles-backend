@@ -1,3 +1,4 @@
+import { validateFields } from '../catalogue/validation';
 ﻿import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -238,7 +239,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
         return;
       }
     } catch (e) {
-      console.error('Error reading CMS store file, using defaults:', e);
+      console.error('Error reading CMS store file, using defaults.');
     }
     this.banners = [...this.defaultBanners];
     this.pages = [...this.defaultPages];
@@ -261,17 +262,17 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
         ),
       );
     } catch (e) {
-      console.error('Failed to write CMS store file:', e);
+      console.error('Failed to write CMS store file.');
     }
   }
 
   // --- BANNERS ---
-  async getAllBanners() {
-    return this.banners.sort((a, b) => a.priority - b.priority);
+  async getAllBanners(admin = false) {
+    return this.banners.filter(b => admin || b.isActive).sort((a, b) => a.priority - b.priority);
   }
 
-  async getBanner(id: string) {
-    const banner = this.banners.find((b) => b.id === id);
+  async getBanner(id: string, admin = false) {
+    const banner = this.banners.find((b) => b.id === id && (admin || b.isActive));
     if (!banner) throw new NotFoundException(`Banner with ID '${id}' not found`);
     return banner;
   }
@@ -300,6 +301,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
   }
 
   async updateBanner(id: string, data: Partial<CmsBanner>) {
+    validateFields(data, ['tag', 'title', 'subtitle', 'image', 'linkUrl', 'buttonText', 'secondaryLinkUrl', 'secondaryButtonText', 'badgeText', 'accentColor', 'priority', 'isActive']);
     const index = this.banners.findIndex((b) => b.id === id);
     if (index === -1) throw new NotFoundException(`Banner '${id}' not found`);
 
@@ -322,12 +324,12 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
   }
 
   // --- PAGES ---
-  async getAllPages() {
-    return this.pages;
+  async getAllPages(admin = false) {
+    return this.pages.filter(p => admin || p.isPublished);
   }
 
-  async getPageBySlug(slug: string) {
-    const page = this.pages.find((p) => p.slug === slug || p.id === slug);
+  async getPageBySlug(slug: string, admin = false) {
+    const page = this.pages.find((p) => (p.slug === slug || p.id === slug) && (admin || p.isPublished));
     if (!page) throw new NotFoundException(`Page '${slug}' not found`);
     return page;
   }
@@ -355,6 +357,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
   }
 
   async updatePage(id: string, data: Partial<CmsPage>) {
+    validateFields(data, ['title', 'slug', 'content', 'metaDescription', 'isPublished', 'lastUpdatedBy']);
     const index = this.pages.findIndex((p) => p.id === id || p.slug === id);
     if (index === -1) throw new NotFoundException(`Page '${id}' not found`);
 
@@ -376,11 +379,12 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
   }
 
   // --- ANNOUNCEMENT ---
-  async getAnnouncement() {
-    return this.announcement;
+  async getAnnouncement(admin = false) {
+    return admin || this.announcement.isActive ? this.announcement : null;
   }
 
   async updateAnnouncement(data: Partial<CmsAnnouncement>) {
+    validateFields(data, ['text', 'linkUrl', 'badgeText', 'bgColor', 'textColor', 'isActive']);
     this.announcement = {
       ...this.announcement,
       ...data,

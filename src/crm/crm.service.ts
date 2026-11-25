@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { validateFields } from '../catalogue/validation';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomCacheService } from '../cache/custom-cache.service';
 import { CustomerType } from '@prisma/client';
@@ -139,7 +140,7 @@ export class CrmService {
       where: { phone: data.phone },
     });
     if (existing) {
-      throw new BadRequestException(`Customer with phone '${data.phone}' already exists.`);
+      throw new ConflictException('Customer with this phone already exists.');
     }
 
     const customer = await this.prisma.customer.create({
@@ -171,6 +172,7 @@ export class CrmService {
   }
 
   async update(id: string, data: any) {
+    validateFields(data, ['name', 'phone', 'email', 'company', 'gstin', 'address', 'city', 'state', 'pincode', 'type', 'creditLimit']);
     const existing = await this.prisma.customer.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Customer '${id}' not found`);
 

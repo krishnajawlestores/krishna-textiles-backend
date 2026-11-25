@@ -1,12 +1,31 @@
+import { UsePipes, ValidationPipe } from '@nestjs/common';
+import { BannerDto, PageDto, AnnouncementDto } from '../common/admin.dto';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CmsService } from './cms.service';
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 
 @ApiTags('Storefront CMS')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 @Controller('cms')
 export class CmsController {
   constructor(private readonly cmsService: CmsService) {}
+
+  @Get('admin/banners')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async adminBanners() { return { success: true, data: await this.cmsService.getAllBanners(true) }; }
+
+  @Get('admin/pages')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async adminPages() { return { success: true, data: await this.cmsService.getAllPages(true) }; }
+
+  @Get('admin/announcement')
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  async adminAnnouncement() { return { success: true, data: await this.cmsService.getAnnouncement(true) }; }
 
   // --- BANNERS ---
   @Get('banners')
@@ -24,25 +43,28 @@ export class CmsController {
   }
 
   @Post('banners')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create new storefront hero banner' })
-  async createBanner(@Body() body: any) {
+  async createBanner(@Body() body: BannerDto) {
     const banner = await this.cmsService.createBanner(body);
     return { success: true, message: 'Banner created successfully', data: banner };
   }
 
   @Put('banners/:id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update storefront banner details' })
-  async updateBanner(@Param('id') id: string, @Body() body: any) {
+  async updateBanner(@Param('id') id: string, @Body() body: BannerDto) {
     const banner = await this.cmsService.updateBanner(id, body);
     return { success: true, message: 'Banner updated successfully', data: banner };
   }
 
   @Delete('banners/:id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete storefront banner' })
   async deleteBanner(@Param('id') id: string) {
@@ -66,25 +88,28 @@ export class CmsController {
   }
 
   @Post('pages')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create new webstore page' })
-  async createPage(@Body() body: any) {
+  async createPage(@Body() body: PageDto) {
     const page = await this.cmsService.createPage(body);
     return { success: true, message: 'Webstore page created successfully', data: page };
   }
 
   @Put('pages/:id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update webstore page content or publishing status' })
-  async updatePage(@Param('id') id: string, @Body() body: any) {
+  async updatePage(@Param('id') id: string, @Body() body: PageDto) {
     const page = await this.cmsService.updatePage(id, body);
     return { success: true, message: 'Webstore page updated successfully', data: page };
   }
 
   @Delete('pages/:id')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete webstore page' })
   async deletePage(@Param('id') id: string) {
@@ -101,10 +126,11 @@ export class CmsController {
   }
 
   @Put('announcement')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update storefront announcement bar message and styles' })
-  async updateAnnouncement(@Body() body: any) {
+  async updateAnnouncement(@Body() body: AnnouncementDto) {
     const announcement = await this.cmsService.updateAnnouncement(body);
     return { success: true, message: 'Storefront announcement updated', data: announcement };
   }

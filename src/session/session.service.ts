@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -62,7 +62,7 @@ export class SessionService {
       return null;
     }
 
-    if (new Date() > session.expiresAt) {
+    if (new Date() >= session.expiresAt) {
       // Mark expired
       await this.prisma.session.update({
         where: { id: session.id },
@@ -75,7 +75,7 @@ export class SessionService {
     this.prisma.session.update({
       where: { id: session.id },
       data: { lastActiveAt: new Date() },
-    }).catch((err) => this.logger.error('Failed updating lastActiveAt', err));
+    }).catch(() => this.logger.error('Failed updating lastActiveAt'));
 
     return session;
   }
@@ -105,30 +105,9 @@ export class SessionService {
     });
   }
 
-  async getDefaultAdminSession() {
-    const adminUser = await this.prisma.user.findFirst({
-      where: { role: 'ADMIN' },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        phone: true,
-        avatar: true,
-      },
-    });
-    if (!adminUser) return null;
-    return {
-      id: 'default-admin-session',
-      userId: adminUser.id,
-      user: adminUser,
-      isValid: true,
-      expiresAt: new Date(Date.now() + 86400000),
-    };
-  }
-
-  async getAllSessions() {
+  async getAllSessions(userId?: string) {
     return this.prisma.session.findMany({
+      where: userId ? { userId } : {},
       include: {
         user: {
           select: {
@@ -144,7 +123,12 @@ export class SessionService {
     });
   }
 
-  async revokeSession(sessionId: string, reason = 'REVOKED_BY_ADMIN') {
+  async revokeSession(sessionId: string, reason = 'REVOKED_BY_ADMIN', actor?: { id: string; role: string }) {
+    const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found.');
+    if (actor && actor.role !== 'ADMIN' && session.userId !== actor.id) {
+      throw new ForbiddenException('You may only revoke your own sessions.');
+    }
     return this.prisma.session.update({
       where: { id: sessionId },
       data: {
@@ -178,21 +162,22 @@ export class SessionService {
     });
   }
 
-  async getSessionStats() {
+  async getSessionStats(userId?: string) {
     const now = new Date();
+    const scope = userId ? { userId } : {};
     const [totalActive, totalExpired, totalRevoked, totalUsersOnline] = await Promise.all([
       this.prisma.session.count({
-        where: { isValid: true, expiresAt: { gt: now } },
+        where: { ...scope, isValid: true, expiresAt: { gt: now } },
       }),
       this.prisma.session.count({
-        where: { expiresAt: { lte: now } },
+        where: { ...scope, expiresAt: { lte: now } },
       }),
       this.prisma.session.count({
-        where: { isValid: false, revokedReason: { not: null } },
+        where: { ...scope, isValid: false, revokedReason: { not: null } },
       }),
       this.prisma.session.groupBy({
         by: ['userId'],
-        where: { isValid: true, expiresAt: { gt: now } },
+        where: { ...scope, isValid: true, expiresAt: { gt: now } },
       }),
     ]);
 

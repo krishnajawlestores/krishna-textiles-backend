@@ -52,7 +52,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
       this.logger.log('Database schema verification and self-heal completed successfully.');
     } catch (error) {
-      this.logger.error('Error during database schema self-heal:', error);
+      this.logger.error('Error during database schema self-heal.');
       throw error;
     }
   }

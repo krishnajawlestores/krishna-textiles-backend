@@ -1,3 +1,8 @@
+import { UsePipes, ValidationPipe } from '@nestjs/common';
+import { UploadBase64Dto, UploadFileDto } from '../common/admin.dto';
+import { UseGuards } from '@nestjs/common';
+import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import {
   Controller,
   Post,
@@ -12,6 +17,9 @@ import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { UploadService, UploadFolder } from './upload.service';
 
 @ApiTags('File Uploads (AWS S3 & CloudFront)')
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles('ADMIN')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 @Controller('upload')
 export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
@@ -55,7 +63,7 @@ export class UploadController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
-    @Body('folder') folder?: UploadFolder,
+    @Body() body: UploadFileDto,
   ) {
     if (!file) {
       throw new BadRequestException('No file provided for upload');
@@ -65,7 +73,7 @@ export class UploadController {
       file.buffer,
       file.originalname,
       file.mimetype,
-      folder,
+      body.folder,
     );
 
     return {
@@ -93,7 +101,7 @@ export class UploadController {
     },
   })
   async uploadBase64(
-    @Body() body: { image: string; folder?: UploadFolder; filename?: string },
+    @Body() body: UploadBase64Dto,
   ) {
     if (!body || !body.image) {
       throw new BadRequestException('Image data (base64) is required');

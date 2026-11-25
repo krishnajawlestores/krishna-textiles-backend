@@ -83,7 +83,7 @@ export class AuthService {
       throw new BadRequestException('User with this email already exists.');
     }
 
-    const role = data.role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER';
+    const role = 'CUSTOMER' as const;
     const passwordHash = await bcrypt.hash(data.password, 10);
     const user = await this.prisma.user.create({
       data: {

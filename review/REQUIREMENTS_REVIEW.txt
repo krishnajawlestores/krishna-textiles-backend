@@ -1,0 +1,186 @@
+Requirements review and incremental correction handover
+25 November 2026
+
+Authority: Krishna_Textiles_Backend_Code_Changes_Codex_Requirements.pdf, with the
+user's explicit exclusions (including payment/Razorpay) taking precedence.
+
+This review started from the existing uncommitted implementation. The baseline
+suite passed 40/40 tests. No code was restarted or replaced. Before editing, the
+review findings were reported in chat. The starting tree was snapshotted so the
+incremental corrections are distinguishable from the original implementation.
+
+BEFORE-EDIT FINDINGS
+Already implemented and supported by baseline tests/source inspection:
+AUTH-01 through AUTH-06; AUTHZ-01 through AUTHZ-03; SESS-01 through SESS-03;
+CAT-01 through CAT-06 and CAT-08. CAT-07 had documented route changes but two
+additional frontend payload regressions discovered during the review.
+
+Incomplete/incorrect:
+1. Section 5 request validation: several controllers still used any/interface body
+   types with no runtime DTO validation. Invalid booleans, numbers, enums, dates,
+   objects and nested stock adjustments could reach handlers/persistence or fail 500.
+2. Section 5 HTTP statuses: raw Prisma validation, missing-row and constraint errors
+   could escape as 500 responses; explicit duplicate coupon/customer checks used 400.
+3. Section 5 sensitive logging: CMS/Prisma logged raw exception objects; upload logs
+   included user-derived filenames/URLs and provider error messages; cache logs
+   echoed arbitrary caller-supplied prefixes.
+4. CAT-07 compatibility: product sizeVariants[].sku sent by the current admin form
+   was rejected; the announcement editor round-tripped id/updatedAt, which the
+   existing update allowlist rejected.
+5. Sections 6-7 automated evidence: these validation/logging/compatibility cases were
+   absent. Session HTTP tests used a revoke stub, so did not exercise real service
+   ownership enforcement end to end.
+
+CORRECTIONS MADE
+- Added runtime class-validator DTOs and strict controller validation for coupon,
+  offer, CMS, CRM, inventory, settings, upload and cache request bodies. Missing or
+  malformed required fields and unexpected fields produce 400 before handlers run.
+- Preserved numeric form strings, optional blank dates/numbers, empty optional CRM
+  email and actual false booleans. String "false" is rejected instead of coerced.
+- Permitted the existing size-variant SKU field. Rejected null for required catalogue
+  scalar strings while retaining nullable categoryId/brandRefId relationships.
+- CMS DTOs discard read-only id/createdAt/updatedAt values, preserving the existing
+  server identity and timestamps when the editor submits a full object.
+- Added a controller-scoped persistence exception filter for products, categories,
+  brands, coupons, offers, CRM, settings, inventory and sessions. Known validation
+  errors return 400, absent records 404, constraint/concurrency conflicts 409; other
+  known Prisma errors stay 500 with a generic message. Raw query/input values are
+  neither returned nor logged by this filter. Existing 401/403 exceptions are not
+  caught or converted. No global/payment exception behavior was changed.
+- Changed duplicate coupon/customer responses to 409. Successful envelopes and
+  route paths are unchanged.
+- Sanitized the identified explicit logging statements. The PrismaService edit is
+  ONE log statement only: schema SQL, startup behavior and connection logic are
+  unchanged. Upload edits are DTO/error/logging changes only, not S3 lifecycle or
+  infrastructure changes.
+- Added 38 focused tests; retained the original 40 tests unchanged.
+
+REQUIREMENT-BY-REQUIREMENT VERIFICATION
+AUTH-01: Source search confirms no getDefaultAdminSession implementation/call in src.
+         Existing SessionAuthGuard never attaches a fallback identity.
+AUTH-02: Baseline guard/session tests plus new HTTP tests through real SessionService
+         verify missing/unknown/expired/revoked tokens and lookup failures return 401.
+AUTH-03: New HTTP regression uses real AuthService, JwtService and SessionService:
+         login -> signed token -> stored mock session -> profile -> logout -> 401.
+         Existing authentication/session creation code was not changed this review.
+AUTH-04: Baseline malformed-header cases verify strict Bearer parsing before lookup.
+AUTH-05: Baseline HTTP role=ADMIN rejection and direct-service CUSTOMER assignment
+         tests pass unchanged. No role assignment changes were needed.
+AUTH-06: No bootstrap route was found/added. Existing HANDOVER.txt documents separate
+         owner-approved provisioning; no account or session data was changed.
+AUTHZ-01/02/03: Reviewed controller routes and baseline metadata tests verify existing
+         SessionAuthGuard/JwtAuthGuard before RolesGuard and ADMIN roles. HTTP tests
+         verify 401/403 before both handlers and the new validators. No guards removed.
+SESS-01: Real-service HTTP revocation tests now verify cross-user denial before writes,
+         authorized ADMIN revocation, missing-session 404 and token omission.
+SESS-02: Real-service HTTP revoke-others/revoke-all tests confirm authenticated acting
+         identity, current-session retention and isolation from other users.
+SESS-03: Existing list/stats/revocation envelopes and documented token omission remain.
+CAT-01: Existing Product/Category/Brand isActive fields confirmed in source schema and
+         generated client. Baseline tests verify archive preserves the record and
+         never calls catalogue delete. No model/schema edit made.
+CAT-02: Existing authorized restore checks existence and category/brand usability;
+         baseline missing-resource and inactive-dependency tests pass.
+CAT-03: Existing public filters cover lists, search, aliases, category/brand counts,
+         relations and legacy text links. Baseline query/visibility tests pass.
+CAT-04: Existing ADMIN-only list/detail routes and active/archived filters retained;
+         baseline public/admin visibility tests pass.
+CAT-05: Existing transactional active-dependency rejection remains, including the PUT
+         isActive=false path. Baseline category/brand and legacy-link tests pass.
+CAT-06: Source search found no catalogue bulk-delete route or delete/deleteMany calls
+         on product/category/brand. No bulk archive or delete feature added.
+CAT-07: Existing paths/success shapes retained. New SKU and announcement metadata
+         compatibility tests pass. Existing necessary API changes remain documented
+         in HANDOVER.txt; incremental error behavior is documented below.
+CAT-08: Existing post-commit cache invalidation and failed-transaction cache retention
+         tests pass. This review did not alter invalidation ordering or public reads.
+Section 5 admin-controller review: Existing authorization retained. Coupon/offer/CMS
+         single-record deletions remain ADMIN-only; no unrelated feature redesign.
+Section 5 DTOs: New invalid-request HTTP tests verify service methods are not invoked;
+         legitimate form payload tests and baseline checkout tests pass.
+Section 5 logging: Sentinel-value tests cover CMS/cache/upload and mocked Prisma
+         startup failure. Raw sensitive error/prefix/filename text is absent in logs.
+Section 5 status/errors: HTTP persistence-code tests cover 400/404/409; explicit
+         duplicate conflicts return 409; a thrown ForbiddenException remains 403.
+T-01 through T-12: Baseline tests still pass; new tests strengthen T-01/T-02/T-06/T-12
+         with real services over HTTP and cover the identified section-5/CAT-07 gaps.
+
+ACTUAL COMMAND RESULTS
+Baseline npm test: 40 tests, 40 passed, 0 failed.
+node --test -r ts-node/register test/requirements-review.test.cjs:
+  38 tests, 38 passed, 0 failed/skipped; exit 0.
+npm test:
+  78 tests, 78 passed, 0 failed/skipped; exit 0.
+npm run typecheck: tsc --noEmit --incremental false; exit 0.
+npm run build: existing prisma generate && nest build; exit 0.
+git diff --check: exit 0.
+No lint script or ESLint configuration exists; no lint pass is claimed.
+The first new-test run failed in its mock startup hook; that test-fixture error was
+fixed before the passing runs above. The build log includes PowerShell's stderr
+wrapper around Prisma's informational "Environment variables loaded" line; the
+build itself exited 0. No environment values were printed.
+
+INCREMENTAL API BEHAVIOR
+- No new/renamed endpoints or changed successful response envelopes.
+- Invalid bodies/unknown fields now return 400 on the reviewed DTO routes. Genuine
+  boolean values are required; numeric form strings remain supported.
+- Duplicate coupon/customer creation and known persistence constraint conflicts now
+  return 409; missing persistence targets return 404; validation failures return 400.
+- Product variants accept sku. CMS read-only metadata can be round-tripped and is
+  ignored, rather than rejected or written.
+
+SCOPE AND LIMITS
+No payment/Razorpay code, order DTOs, schema/models, migrations, db push, database
+writes, seed, wipe, recovery, deployment, commit or push were performed in this
+review. No real DB/S3/provider connection was made. Tests use real Nest HTTP routing,
+guards and selected real services with mocked persistence/provider calls. The
+Prisma startup log test stubs the SQL executor; it does not execute SQL. Real
+PostgreSQL concurrency and production/browser behavior have NOT been verified.
+The existing startup DDL was not run or modified. No requirement is claimed verified
+against a live database. No remaining application gap was identified within this
+review's scope/evidence; excluded operations remain unperformed.
+
+The starting tsconfig.tsbuildinfo already had a user/worktree change. Its exact
+starting bytes were restored after the build, rather than resetting it to Git HEAD.
+Existing auth/session/catalogue implementation and pre-existing changes were kept.
+
+FILES CHANGED BY THIS REVIEW (incremental, not the entire pre-existing Git diff)
+src/brands/brands.controller.ts
+src/cache/cache.controller.ts
+src/cache/custom-cache.service.ts
+src/catalogue/validation.ts
+src/categories/categories.controller.ts
+src/cms/cms.controller.ts
+src/cms/cms.service.ts
+src/common/admin.dto.ts
+src/common/persistence-exception.filter.ts
+src/coupons/coupons.controller.ts
+src/coupons/coupons.service.ts
+src/crm/crm.controller.ts
+src/crm/crm.service.ts
+src/inventory/inventory.controller.ts
+src/offers/offers.controller.ts
+src/prisma/prisma.service.ts
+src/products/products.controller.ts
+src/session/session.controller.ts
+src/settings/settings.controller.ts
+src/upload/upload.controller.ts
+src/upload/upload.service.ts
+test/requirements-review.test.cjs
+
+Review artifacts changed/added:
+review/REQUIREMENTS_REVIEW.txt
+review/HANDOVER.txt (pointer to this newer incremental review)
+review/corrections.patch
+review/backend-changes.patch (refreshed cumulative application/test diff)
+review/correction-test-output.txt
+review/correction-full-test-output.txt
+review/correction-typecheck-output.txt
+review/correction-build-output.txt
+
+DIFFS
+review/corrections.patch: only this review's application/test changes, against the
+starting uncommitted working tree.
+review/backend-changes.patch: cumulative application/test changes against Git HEAD,
+including new source/test files, excluding build metadata and review artifacts.
+No new commit. Base commit: 08694b78a45859127ccc8f2885d015a6b98a6138

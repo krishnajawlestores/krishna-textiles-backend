@@ -16,7 +16,9 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "prisma:wipe": "node prisma/wipe_all_data.js"
+    "prisma:wipe": "node prisma/wipe_all_data.js",
+    "test": "node --test -r ts-node/register test/*.test.cjs",
+    "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1147.0",

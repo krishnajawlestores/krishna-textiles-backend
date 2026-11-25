@@ -1,64 +1,64 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CustomCacheService } from '../cache/custom-cache.service';
+import { catalogueWrite, publicProductFilter } from '../catalogue/catalogue-policy';
+import { validateFields } from '../catalogue/validation';
 
 @Injectable()
 export class BrandsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly cache: CustomCacheService) {}
 
-  async findAll() {
+  async findAll(admin = false, isActive?: boolean) {
     return this.prisma.brand.findMany({
-      include: {
-        _count: { select: { products: true } },
-      },
+      where: admin ? { isActive } : { isActive: true },
+      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
       orderBy: { name: 'asc' },
     });
   }
 
-  async findOne(id: string) {
-    const brand = await this.prisma.brand.findFirst({
-      where: { OR: [{ id }, { slug: id }] },
-      include: {
-        _count: { select: { products: true } },
-      },
+  async findOne(id: string, admin = false) {
+    const record = await this.prisma.brand.findFirst({
+      where: { OR: [{ id }, { slug: id }], ...(admin ? {} : { isActive: true }) },
+      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
     });
-    if (!brand) throw new NotFoundException(`Brand '${id}' not found`);
-    return brand;
+    if (!record) throw new NotFoundException('Brand not found.');
+    return record;
   }
 
-  async create(data: { name: string; image?: string; description?: string }) {
+  async create(data: any) {
+    validateFields(data, ['name', 'image', 'description', 'isActive']);
+    if (!data.name?.trim()) throw new BadRequestException('name is required.');
     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    const existing = await this.prisma.brand.findFirst({ where: { OR: [{ name: data.name }, { slug }] } });
-    if (existing) throw new BadRequestException(`Brand '${data.name}' already exists`);
-
-    return this.prisma.brand.create({
-      data: {
-        name: data.name,
-        slug,
-        image: data.image || null,
-        description: data.description || null,
-      },
-    });
+    return catalogueWrite(this.prisma, this.cache, tx => tx.brand.create({ data: {
+      name: data.name, slug, image: data.image || null, description: data.description || null,
+      isActive: data.isActive ?? true,
+    } }));
   }
 
   async update(id: string, data: any) {
-    const existing = await this.prisma.brand.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException(`Brand '${id}' not found`);
-
-    return this.prisma.brand.update({
-      where: { id },
-      data: {
-        name: data.name ?? existing.name,
-        image: data.image ?? existing.image,
-        description: data.description ?? existing.description,
-        isActive: data.isActive !== undefined ? Boolean(data.isActive) : existing.isActive,
-      },
+    validateFields(data, ['name', 'image', 'description', 'isActive']);
+    return catalogueWrite(this.prisma, this.cache, async tx => {
+      const existing = await tx.brand.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Brand not found.');
+      if (data.isActive === false) await this.checkDependencies(tx, existing);
+      return tx.brand.update({ where: { id }, data: { ...data } });
     });
   }
 
+  private async checkDependencies(tx: any, record: any) {
+    const dependencies = await tx.product.count({ where: {
+      isActive: true,
+      OR: [{ brandRefId: record.id }, { brandRefId: null, OR: [{ brandId: { in: [record.id, record.slug], mode: 'insensitive' } }, { brand: { equals: record.name, mode: 'insensitive' } }] }],
+    } });
+    if (dependencies) throw new ConflictException('Archive or reassign active products before archiving this brand.');
+  }
+
   async remove(id: string) {
-    const existing = await this.prisma.brand.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException(`Brand '${id}' not found`);
-    await this.prisma.brand.delete({ where: { id } });
-    return { success: true, message: `Brand '${existing.name}' deleted` };
+    const record = await this.update(id, { isActive: false });
+    return { success: true, message: `Brand '${record.name}' archived` };
+  }
+
+  async restore(id: string) {
+    return this.update(id, { isActive: true });
   }
 }

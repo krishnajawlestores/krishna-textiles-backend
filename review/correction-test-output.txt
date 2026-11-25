@@ -1,0 +1,238 @@
+TAP version 13
+# Subtest: Section 5: POST /coupons/validate rejects invalid DTO before handler
+ok 1 - Section 5: POST /coupons/validate rejects invalid DTO before handler
+  ---
+  duration_ms: 2490.6429
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /coupons rejects invalid DTO before handler
+ok 2 - Section 5: POST /coupons rejects invalid DTO before handler
+  ---
+  duration_ms: 12.9924
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /coupons/id rejects invalid DTO before handler
+ok 3 - Section 5: PUT /coupons/id rejects invalid DTO before handler
+  ---
+  duration_ms: 9.6446
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /offers rejects invalid DTO before handler
+ok 4 - Section 5: POST /offers rejects invalid DTO before handler
+  ---
+  duration_ms: 6.9828
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /offers/id rejects invalid DTO before handler
+ok 5 - Section 5: PUT /offers/id rejects invalid DTO before handler
+  ---
+  duration_ms: 6.8466
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /cms/banners rejects invalid DTO before handler
+ok 6 - Section 5: POST /cms/banners rejects invalid DTO before handler
+  ---
+  duration_ms: 8.3912
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /cms/pages/id rejects invalid DTO before handler
+ok 7 - Section 5: PUT /cms/pages/id rejects invalid DTO before handler
+  ---
+  duration_ms: 5.1311
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /cms/announcement rejects invalid DTO before handler
+ok 8 - Section 5: PUT /cms/announcement rejects invalid DTO before handler
+  ---
+  duration_ms: 4.1494
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /crm/customers rejects invalid DTO before handler
+ok 9 - Section 5: POST /crm/customers rejects invalid DTO before handler
+  ---
+  duration_ms: 7.6463
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /crm/customers/id rejects invalid DTO before handler
+ok 10 - Section 5: PUT /crm/customers/id rejects invalid DTO before handler
+  ---
+  duration_ms: 5.3169
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /crm/customers/id/notes rejects invalid DTO before handler
+ok 11 - Section 5: POST /crm/customers/id/notes rejects invalid DTO before handler
+  ---
+  duration_ms: 4.1807
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /inventory/adjust rejects invalid DTO before handler
+ok 12 - Section 5: POST /inventory/adjust rejects invalid DTO before handler
+  ---
+  duration_ms: 3.6957
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /inventory/bulk-adjust rejects invalid DTO before handler
+ok 13 - Section 5: POST /inventory/bulk-adjust rejects invalid DTO before handler
+  ---
+  duration_ms: 4.3402
+  type: 'test'
+  ...
+# Subtest: Section 5: PUT /settings rejects invalid DTO before handler
+ok 14 - Section 5: PUT /settings rejects invalid DTO before handler
+  ---
+  duration_ms: 3.1403
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /upload/base64 rejects invalid DTO before handler
+ok 15 - Section 5: POST /upload/base64 rejects invalid DTO before handler
+  ---
+  duration_ms: 3.0439
+  type: 'test'
+  ...
+# Subtest: Section 5: POST /cache/flush rejects invalid DTO before handler
+ok 16 - Section 5: POST /cache/flush rejects invalid DTO before handler
+  ---
+  duration_ms: 2.9978
+  type: 'test'
+  ...
+# Subtest: Section 5: unexpected identity/privilege fields are rejected on admin DTOs
+ok 17 - Section 5: unexpected identity/privilege fields are rejected on admin DTOs
+  ---
+  duration_ms: 7.739
+  type: 'test'
+  ...
+# Subtest: AUTHZ: validation never replaces 401/403 authentication and role enforcement
+ok 18 - AUTHZ: validation never replaces 401/403 authentication and role enforcement
+  ---
+  duration_ms: 19.1284
+  type: 'test'
+  ...
+# Subtest: CAT07: existing form numbers, blank optional dates, empty CRM email and false booleans remain valid
+ok 19 - CAT07: existing form numbers, blank optional dates, empty CRM email and false booleans remain valid
+  ---
+  duration_ms: 12.4889
+  type: 'test'
+  ...
+# Subtest: CAT07: announcement editor can round-trip metadata without changing server fields
+ok 20 - CAT07: announcement editor can round-trip metadata without changing server fields
+  ---
+  duration_ms: 3.3106
+  type: 'test'
+  ...
+# Subtest: CAT07: product variant SKU is accepted; null required fields and nested operations are rejected
+ok 21 - CAT07: product variant SKU is accepted; null required fields and nested operations are rejected
+  ---
+  duration_ms: 1.3665
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2002 returns safe HTTP status
+ok 22 - Section 5: persistence P2002 returns safe HTTP status
+  ---
+  duration_ms: 3.1143
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2003 returns safe HTTP status
+ok 23 - Section 5: persistence P2003 returns safe HTTP status
+  ---
+  duration_ms: 2.4829
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2034 returns safe HTTP status
+ok 24 - Section 5: persistence P2034 returns safe HTTP status
+  ---
+  duration_ms: 2.561
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2025 returns safe HTTP status
+ok 25 - Section 5: persistence P2025 returns safe HTTP status
+  ---
+  duration_ms: 2.5192
+  type: 'test'
+  ...
+# Subtest: Section 5: persistence P2000 returns safe HTTP status
+ok 26 - Section 5: persistence P2000 returns safe HTTP status
+  ---
+  duration_ms: 2.4898
+  type: 'test'
+  ...
+# Subtest: Section 5: Prisma validation errors return 400 without raw request data
+ok 27 - Section 5: Prisma validation errors return 400 without raw request data
+  ---
+  duration_ms: 3.1251
+  type: 'test'
+  ...
+# Subtest: T01/T02: real SessionService rejects missing, unknown, expired, revoked tokens and database failure over HTTP
+ok 28 - T01/T02: real SessionService rejects missing, unknown, expired, revoked tokens and database failure over HTTP
+  ---
+  duration_ms: 6.6029
+  type: 'test'
+  ...
+# Subtest: SESS/T06: real service denies cross-user DELETE before any revocation; admin can revoke it
+ok 29 - SESS/T06: real service denies cross-user DELETE before any revocation; admin can revoke it
+  ---
+  duration_ms: 13.9795
+  type: 'test'
+  ...
+# Subtest: SESS: real revoke-others derives identity, retains current session, leaves other users unchanged
+ok 30 - SESS: real revoke-others derives identity, retains current session, leaves other users unchanged
+  ---
+  duration_ms: 6.4904
+  type: 'test'
+  ...
+# Subtest: SESS: real revoke-all requires admin for another user and does not revoke the acting admin
+ok 31 - SESS: real revoke-all requires admin for another user and does not revoke the acting admin
+  ---
+  duration_ms: 4.2358
+  type: 'test'
+  ...
+# Subtest: T12: real login, JWT issuance, persistent session, profile and logout flow over HTTP
+ok 32 - T12: real login, JWT issuance, persistent session, profile and logout flow over HTTP
+  ---
+  duration_ms: 28.8305
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: upload success and provider failure never log filename/URL/error payload
+ok 33 - Sensitive logging: upload success and provider failure never log filename/URL/error payload
+  ---
+  duration_ms: 1.6079
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: CMS errors and cache prefixes are not echoed
+ok 34 - Sensitive logging: CMS errors and cache prefixes are not echoed
+  ---
+  duration_ms: 0.7205
+  type: 'test'
+  ...
+# Subtest: Sensitive logging: existing Prisma startup error is sanitized without executing SQL
+ok 35 - Sensitive logging: existing Prisma startup error is sanitized without executing SQL
+  ---
+  duration_ms: 0.664
+  type: 'test'
+  ...
+# Subtest: Section 5: duplicate coupon/customer conflicts are 409 and do not write
+ok 36 - Section 5: duplicate coupon/customer conflicts are 409 and do not write
+  ---
+  duration_ms: 0.8744
+  type: 'test'
+  ...
+# Subtest: Section 5: authorization exceptions are never converted to success or persistence errors
+ok 37 - Section 5: authorization exceptions are never converted to success or persistence errors
+  ---
+  duration_ms: 3.5347
+  type: 'test'
+  ...
+# Subtest: CAT07: transformed announcement metadata leaves existing record identity intact
+ok 38 - CAT07: transformed announcement metadata leaves existing record identity intact
+  ---
+  duration_ms: 0.7685
+  type: 'test'
+  ...
+1..38
+# tests 38
+# suites 0
+# pass 38
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5463.6015

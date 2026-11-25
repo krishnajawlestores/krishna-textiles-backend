@@ -1,9 +1,18 @@
+import { UseFilters } from '@nestjs/common';
+import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
+import { UsePipes, ValidationPipe } from '@nestjs/common';
+import { AdjustStockDto, BulkAdjustStockDto } from '../common/admin.dto';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Post, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { InventoryService } from './inventory.service';
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 
 @ApiTags('Inventory Management')
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles('ADMIN')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+@UseFilters(PersistenceExceptionFilter)
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
@@ -38,10 +47,11 @@ export class InventoryController {
   }
 
   @Post('adjust')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Execute single stock adjustment (+/-) with reason and audit log' })
-  async adjust(@Body() body: any, @Req() req: any) {
+  async adjust(@Body() body: AdjustStockDto, @Req() req: any) {
     const createdBy = req.user?.name || 'Admin';
     const result = await this.inventoryService.adjustStock({
       productId: body.productId,
@@ -59,10 +69,11 @@ export class InventoryController {
   }
 
   @Post('bulk-adjust')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Batch inward/outward adjustment for multiple products' })
-  async bulkAdjust(@Body() body: { items: any[] }, @Req() req: any) {
+  async bulkAdjust(@Body() body: BulkAdjustStockDto, @Req() req: any) {
     const createdBy = req.user?.name || 'Admin';
     const itemsWithUser = (body.items || []).map((it) => ({ ...it, createdBy }));
     const results = await this.inventoryService.bulkAdjust(itemsWithUser);

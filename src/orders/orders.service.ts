@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { publicProductFilter } from '../catalogue/catalogue-policy';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CustomCacheService } from '../cache/custom-cache.service';
 import { SettingsService } from '../settings/settings.service';
@@ -47,7 +48,7 @@ export class OrdersService {
         }
       }
     } catch (err) {
-      console.error('Error syncing orphan orders to customers:', err);
+      console.error('Error syncing orphan orders to customers.');
     }
   }
 
@@ -59,12 +60,17 @@ export class OrdersService {
     customerPhone?: string;
     page?: number;
     limit?: number;
-  }) {
+  }, actor?: { role: string; email: string }) {
     const page = params.page ? Number(params.page) : 1;
     const limit = params.limit ? Number(params.limit) : 15;
     const skip = (page - 1) * limit;
 
     const where: any = {};
+    if (actor?.role !== 'ADMIN') {
+      if (!actor?.email) throw new ForbiddenException('Authenticated order access required.');
+      if (params.customerEmail && params.customerEmail.toLowerCase() !== actor.email.toLowerCase()) throw new ForbiddenException('You may only view your own orders.');
+      where.AND = [{ customerEmail: { equals: actor.email, mode: 'insensitive' } }];
+    }
     if (params.status && params.status !== ('ALL' as any)) {
       if ((params.status as string) === 'CONFIRMED' || (params.status as string) === 'PENDING') {
         where.status = { in: ['CONFIRMED', 'PENDING'] };
@@ -116,11 +122,11 @@ export class OrdersService {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-      orders,
+      orders: orders.map(order => this.publicOrder(order, actor)),
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: { role: string; email: string }) {
     const order = await this.prisma.order.findFirst({
       where: {
         OR: [{ id }, { orderNumber: id }],
@@ -139,7 +145,16 @@ export class OrdersService {
     });
 
     if (!order) throw new NotFoundException(`Order '${id}' not found`);
-    return order;
+    if (actor && actor.role !== 'ADMIN' && (!actor.email || order.customerEmail?.toLowerCase() !== actor.email.toLowerCase())) {
+      throw new ForbiddenException('You may only view your own orders.');
+    }
+    return this.publicOrder(order, actor);
+  }
+
+  private publicOrder(order: any, actor?: { role: string }) {
+    if (!actor || actor.role === 'ADMIN') return order;
+    const { customer, razorpaySignature, paymentProofUrl, paymentNotes, ...safe } = order;
+    return { ...safe, items: order.items?.map(({ product, ...item }) => ({ ...item, product: null })) };
   }
 
   async getOrderHistory(id: string) {
@@ -194,7 +209,7 @@ export class OrdersService {
         keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_ThMMNStuG17mBM',
       };
     } catch (err: any) {
-      console.error('Razorpay order creation error:', err);
+      console.error('Razorpay order creation failed.');
       throw new BadRequestException(
         err?.error?.description || err.message || 'Razorpay order creation failed'
       );
@@ -326,6 +341,8 @@ export class OrdersService {
     // 9-digit numeric order number format
     const orderNumber = Math.floor(100000000 + Math.random() * 900000000).toString();
 
+    const availableProducts = await publicProductFilter(this.prisma);
+
     // Safely validate and resolve line items
     let subtotal = 0;
     const validatedLineItems = [];
@@ -333,9 +350,10 @@ export class OrdersService {
     for (const item of data.items) {
       let validProductId: string | null = null;
       if (item.productId) {
-        const prod = await this.prisma.product.findUnique({
-          where: { id: item.productId },
+        const prod = await this.prisma.product.findFirst({
+          where: { AND: [{ id: item.productId }, availableProducts] },
         });
+        if (!prod) throw new BadRequestException('Product is unavailable.');
         if (prod) {
           validProductId = prod.id;
         }
@@ -454,7 +472,7 @@ export class OrdersService {
             });
           }
         } catch (stockErr) {
-          console.warn(`Failed to deduct inventory for product ${item.productId}:`, stockErr);
+          console.warn('Failed to deduct inventory.');
         }
       }
     }
@@ -465,16 +483,16 @@ export class OrdersService {
       await this.cache.invalidatePrefix('products:');
       await this.cache.invalidatePrefix('crm:');
     } catch (cacheErr) {
-      console.warn('Cache invalidation warning:', cacheErr);
+      console.warn('Cache invalidation failed.');
     }
 
     return order;
   }
 
   async updateStatus(
-    id: string, 
-    status: OrderStatus, 
-    trackingNumber?: string, 
+    id: string,
+    status: OrderStatus,
+    trackingNumber?: string,
     note?: string,
     courierPartner?: string,
     dispatchedAt?: string,
@@ -568,7 +586,7 @@ export class OrdersService {
         details.push(`Est. Delivery: ${new Date(updateData.expectedDeliveryDate || updated.expectedDeliveryDate).toLocaleDateString('en-IN')}`);
       }
       const label = status === OrderStatus.DISPATCHED ? 'Shipped' : status === OrderStatus.DELIVERED ? 'Delivered' : status === OrderStatus.PROCESSING ? 'Processing' : status === OrderStatus.CANCELLED ? 'Cancelled' : 'Dispatch Pending';
-      historyNote = details.length > 0 
+      historyNote = details.length > 0
         ? `Stage changed to ${label} (${details.join(', ')})`
         : `Stage changed to ${label}`;
     }
@@ -672,8 +690,8 @@ export class OrdersService {
     return updated;
   }
 
-  async getInvoiceData(id: string) {
-    const order = await this.findOne(id);
+  async getInvoiceData(id: string, actor?: { role: string; email: string }) {
+    const order = await this.findOne(id, actor);
     const settings = await this.settingsService.getSettings();
     return {
       company: {

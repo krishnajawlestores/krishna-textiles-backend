@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -61,7 +61,7 @@ export class UploadService implements OnModuleInit {
           this.logger.warn(`⚠️ AWS_CLOUDFRONT_URL not set. Falling back to direct S3 URLs.`);
         }
       } catch (err: any) {
-        this.logger.error(`Failed to initialize AWS S3 Client: ${err.message}`);
+        this.logger.error('Failed to initialize AWS S3 Client.');
       }
     } else {
       this.logger.warn(
@@ -95,7 +95,7 @@ export class UploadService implements OnModuleInit {
         }
       }
     } catch (err: any) {
-      this.logger.warn(`Could not create local upload directory: ${err.message}`);
+      this.logger.warn('Could not create local upload directory.');
     }
   }
 
@@ -127,7 +127,7 @@ export class UploadService implements OnModuleInit {
         created.push(folderKey);
         this.logger.log(`📁 S3 Folder verified/created: s3://${this.bucketName}/${folderKey}`);
       } catch (err: any) {
-        this.logger.warn(`Warning creating S3 folder marker for ${folderKey}: ${err.message}`);
+        this.logger.warn('Failed creating S3 folder marker.');
         errors.push(`${folderKey}: ${err.message}`);
       }
     }
@@ -218,7 +218,7 @@ export class UploadService implements OnModuleInit {
         await this.s3Client.send(command);
         const { url, isCloudFront } = this.getPublicUrl(s3Key);
 
-        this.logger.log(`Uploaded to S3: ${s3Key} -> ${url}`);
+        this.logger.log('Uploaded file to S3.');
         return {
           url,
           key: s3Key,
@@ -229,7 +229,7 @@ export class UploadService implements OnModuleInit {
           isCloudFront,
         };
       } catch (err: any) {
-        this.logger.error(`S3 upload failed: ${err.message}. Saving to local fallback.`);
+        this.logger.error('S3 upload failed. Saving to local fallback.');
       }
     }
 
@@ -262,7 +262,7 @@ export class UploadService implements OnModuleInit {
     folderInput?: string,
   ): Promise<UploadResult> {
     if (!base64Data || typeof base64Data !== 'string') {
-      throw new Error('Invalid base64 image data');
+      throw new BadRequestException('Invalid base64 image data');
     }
 
     let mimeType = 'image/webp';

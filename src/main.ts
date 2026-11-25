@@ -1,4 +1,5 @@
-﻿import { NestFactory } from '@nestjs/core';
+import { PrivilegeFieldsPipe } from './auth/privilege-fields.pipe';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -29,6 +30,7 @@ async function bootstrap() {
 
   // Validation pipe
   app.useGlobalPipes(
+    new PrivilegeFieldsPipe(),
     new ValidationPipe({
       whitelist: false,
       transform: true,

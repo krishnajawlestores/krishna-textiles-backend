@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CouponType } from '@prisma/client';
 
@@ -103,7 +103,7 @@ export class CouponsService {
   }) {
     const code = data.code.trim().toUpperCase();
     const existing = await this.prisma.coupon.findUnique({ where: { code } });
-    if (existing) throw new BadRequestException(`Coupon code '${code}' already exists`);
+    if (existing) throw new ConflictException(`Coupon code '${code}' already exists`);
 
     return this.prisma.coupon.create({
       data: {

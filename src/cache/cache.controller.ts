@@ -1,8 +1,15 @@
+import { UsePipes, ValidationPipe } from '@nestjs/common';
+import { FlushCacheDto } from '../common/admin.dto';
+import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Post, Body, Delete, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CustomCacheService } from './custom-cache.service';
 
 @ApiTags('Cache Management')
+@UseGuards(SessionAuthGuard, RolesGuard)
+@Roles('ADMIN')
+@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 @Controller('cache')
 export class CacheController {
   constructor(private readonly cacheService: CustomCacheService) {}
@@ -27,7 +34,7 @@ export class CacheController {
 
   @Post('flush')
   @ApiOperation({ summary: 'Flush all cached entries or invalidate by prefix (e.g. products, analytics)' })
-  async flush(@Body() body: { prefix?: string }) {
+  async flush(@Body() body: FlushCacheDto) {
     if (body?.prefix) {
       const cleared = await this.cacheService.invalidatePrefix(body.prefix);
       return {

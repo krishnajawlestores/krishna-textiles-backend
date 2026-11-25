@@ -1,3 +1,6 @@
+import { Req, UsePipes, ValidationPipe } from '@nestjs/common';
+import { CreateOrderDto, VerifyPaymentDto, UpdateOrderStatusDto, UpdatePaymentDto } from './order.dto';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
@@ -9,9 +12,16 @@ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  private customerOrder(order: any) {
+    const { customer, razorpaySignature, paymentProofUrl, paymentNotes, ...safe } = order;
+    return safe;
+  }
+
   @Get()
+  @UseGuards(SessionAuthGuard)
   @ApiOperation({ summary: 'Get all orders with pagination and status filters' })
   async findAll(
+    @Req() req: any,
     @Query('status') status?: OrderStatus,
     @Query('search') search?: string,
     @Query('customerId') customerId?: string,
@@ -20,7 +30,7 @@ export class OrdersController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    return this.ordersService.findAll({ status, search, customerId, customerEmail, customerPhone, page, limit });
+    return this.ordersService.findAll({ status, search, customerId, customerEmail, customerPhone, page, limit }, req.user);
   }
 
   @Get('razorpay/config')
@@ -38,71 +48,65 @@ export class OrdersController {
   }
 
   @Post('razorpay/verify')
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   @ApiOperation({ summary: 'Verify Razorpay payment signature and complete order placement' })
   async verifyRazorpayPayment(
     @Body()
-    body: {
-      razorpayOrderId: string;
-      razorpayPaymentId: string;
-      razorpaySignature: string;
-      orderData: any;
-    },
+    body: VerifyPaymentDto,
   ) {
     const order = await this.ordersService.verifyAndCreateOrder(body);
     return {
       success: true,
       message: `Payment verified & order ${order.orderNumber} placed successfully`,
-      data: order,
+      data: this.customerOrder(order),
     };
   }
 
   @Get(':id')
+  @UseGuards(SessionAuthGuard)
   @ApiOperation({ summary: 'Get order details with line items' })
-  async findOne(@Param('id') id: string) {
-    const data = await this.ordersService.findOne(id);
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    const data = await this.ordersService.findOne(id, req.user);
     return { success: true, data };
   }
 
   @Get(':id/invoice')
+  @UseGuards(SessionAuthGuard)
   @ApiOperation({ summary: 'Get printable GST tax invoice data for order' })
-  async getInvoice(@Param('id') id: string) {
-    const data = await this.ordersService.getInvoiceData(id);
+  async getInvoice(@Param('id') id: string, @Req() req: any) {
+    const data = await this.ordersService.getInvoiceData(id, req.user);
     return { success: true, data };
   }
 
   @Post()
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
   @ApiOperation({ summary: 'Create a new order (auto deducts stock & generates invoice)' })
-  async create(@Body() body: any) {
+  async create(@Body() body: CreateOrderDto) {
     const order = await this.ordersService.create(body);
     return {
       success: true,
       message: `Order ${order.orderNumber} placed successfully`,
-      data: order,
+      data: this.customerOrder(order),
     };
   }
 
   @Patch(':id/status')
-  @UseGuards(SessionAuthGuard)
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update order status and manual fulfillment details' })
   async updateStatus(
     @Param('id') id: string,
-    @Body() body: { 
-      status: OrderStatus; 
-      trackingNumber?: string;
-      courierPartner?: string;
-      dispatchedAt?: string;
-      expectedDeliveryDate?: string;
-      note?: string;
-    },
+    @Body() body: UpdateOrderStatusDto,
   ) {
     const updated = await this.ordersService.updateStatus(
-      id, 
-      body.status, 
-      body.trackingNumber, 
-      body.note, 
-      body.courierPartner, 
-      body.dispatchedAt, 
+      id,
+      body.status,
+      body.trackingNumber,
+      body.note,
+      body.courierPartner,
+      body.dispatchedAt,
       body.expectedDeliveryDate
     );
     return {
@@ -113,19 +117,15 @@ export class OrdersController {
   }
 
   @Patch(':id/payment')
-  @UseGuards(SessionAuthGuard)
+  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+  @UseGuards(SessionAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update order payment status' })
   async updatePayment(
     @Param('id') id: string,
     @Body()
-    body: {
-      paymentStatus: PaymentStatus;
-      paymentMethod?: string;
-      paymentProofUrl?: string;
-      paymentReceivedAt?: string;
-      paymentNotes?: string;
-    },
+    body: UpdatePaymentDto,
   ) {
     const updated = await this.ordersService.updatePayment(id, body);
     return {

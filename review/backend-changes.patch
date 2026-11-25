@@ -1,0 +1,3230 @@
+diff --git a/package.json b/package.json
+index 10a2b5e5..54251c86 100644
+--- a/package.json
++++ b/package.json
+@@ -16,7 +16,9 @@
+     "prisma:generate": "prisma generate",
+     "prisma:push": "prisma db push",
+     "prisma:seed": "ts-node prisma/seed.ts",
+-    "prisma:wipe": "node prisma/wipe_all_data.js"
++    "prisma:wipe": "node prisma/wipe_all_data.js",
++    "test": "node --test -r ts-node/register test/*.test.cjs",
++    "typecheck": "tsc --noEmit --incremental false"
+   },
+   "dependencies": {
+     "@aws-sdk/client-s3": "^3.1147.0",
+diff --git a/src/analytics/analytics.controller.ts b/src/analytics/analytics.controller.ts
+index 3c412786..69d53b46 100644
+--- a/src/analytics/analytics.controller.ts
++++ b/src/analytics/analytics.controller.ts
+@@ -1,8 +1,13 @@
++import { UseGuards } from '@nestjs/common';
++import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Query } from '@nestjs/common';
+ import { ApiTags, ApiOperation } from '@nestjs/swagger';
+ import { AnalyticsService } from './analytics.service';
+ 
+ @ApiTags('Analytics & Business Intelligence')
++@UseGuards(SessionAuthGuard, RolesGuard)
++@Roles('ADMIN')
+ @Controller('analytics')
+ export class AnalyticsController {
+   constructor(private readonly analyticsService: AnalyticsService) {}
+diff --git a/src/auth/auth.controller.ts b/src/auth/auth.controller.ts
+index a4fd15fe..660fbf56 100644
+--- a/src/auth/auth.controller.ts
++++ b/src/auth/auth.controller.ts
+@@ -1,4 +1,4 @@
+-import { Controller, Post, Body, Get, Req, UseGuards, Headers } from '@nestjs/common';
++import { Controller, Post, Body, Get, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
+ import { AuthService } from './auth.service';
+ import { SessionAuthGuard } from './guards/session-auth.guard';
+@@ -37,13 +37,11 @@ export class RegisterDto {
+   @IsString()
+   phone?: string;
+ 
+-  @ApiProperty({ example: 'ADMIN', required: false })
+-  @IsOptional()
+-  role?: any;
+ }
+ 
+ @ApiTags('Authentication')
+ @Controller('auth')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+ export class AuthController {
+   constructor(private readonly authService: AuthService) {}
+ 
+@@ -60,7 +58,7 @@ export class AuthController {
+   }
+ 
+   @Post('register')
+-  @ApiOperation({ summary: 'Register a new staff/admin/customer user' })
++  @ApiOperation({ summary: 'Register a new customer' })
+   async register(@Body() body: RegisterDto, @Req() req: any) {
+     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+     const userAgent = req.headers['user-agent'];
+@@ -71,10 +69,10 @@ export class AuthController {
+   }
+ 
+   @Post('logout')
++  @UseGuards(SessionAuthGuard)
+   @ApiOperation({ summary: 'Logout and revoke the current active session' })
+-  async logout(@Headers('authorization') authHeader: string) {
+-    const token = authHeader ? authHeader.replace('Bearer ', '') : '';
+-    return this.authService.logout(token);
++  async logout(@Req() req: any) {
++    return this.authService.logout(req.session.token);
+   }
+ 
+   @Get('profile')
+diff --git a/src/auth/auth.service.ts b/src/auth/auth.service.ts
+index 2297254d..72994e66 100644
+--- a/src/auth/auth.service.ts
++++ b/src/auth/auth.service.ts
+@@ -83,7 +83,7 @@ export class AuthService {
+       throw new BadRequestException('User with this email already exists.');
+     }
+ 
+-    const role = data.role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER';
++    const role = 'CUSTOMER' as const;
+     const passwordHash = await bcrypt.hash(data.password, 10);
+     const user = await this.prisma.user.create({
+       data: {
+diff --git a/src/auth/guards/session-auth.guard.ts b/src/auth/guards/session-auth.guard.ts
+index 59ffcea8..94dfdb0e 100644
+--- a/src/auth/guards/session-auth.guard.ts
++++ b/src/auth/guards/session-auth.guard.ts
+@@ -9,18 +9,19 @@ export class SessionAuthGuard implements CanActivate {
+     const request = context.switchToHttp().getRequest();
+     const authHeader = request.headers['authorization'];
+ 
+-    let session = null;
+-    if (authHeader && authHeader.startsWith('Bearer ')) {
+-      const token = authHeader.split(' ')[1];
+-      session = await this.sessionService.validateSession(token);
++    if (typeof authHeader !== 'string' || !/^Bearer [^\s]+$/i.test(authHeader)) {
++      throw new UnauthorizedException('A valid Bearer token is required.');
+     }
+ 
+-    if (!session) {
+-      session = await this.sessionService.getDefaultAdminSession();
++    let session;
++    try {
++      session = await this.sessionService.validateSession(authHeader.slice(7));
++    } catch {
++      throw new UnauthorizedException('Session validation failed.');
+     }
+-
+-    if (!session) {
+-      throw new UnauthorizedException('Authentication required. Missing Bearer token.');
++    const expiresAt = new Date(session?.expiresAt).getTime();
++    if (!session?.user || !session.isValid || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
++      throw new UnauthorizedException('Invalid or expired session.');
+     }
+ 
+     // Attach user and session to request
+diff --git a/src/brands/brands.controller.ts b/src/brands/brands.controller.ts
+index 906b5ef2..e32fd403 100644
+--- a/src/brands/brands.controller.ts
++++ b/src/brands/brands.controller.ts
+@@ -1,7 +1,13 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { Query } from '@nestjs/common';
++import { activeFilter } from '../catalogue/catalogue-policy';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+ import { BrandsService } from './brands.service';
+ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+ 
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('brands')
+ export class BrandsController {
+   constructor(private readonly brandsService: BrandsService) {}
+@@ -11,25 +17,49 @@ export class BrandsController {
+     return this.brandsService.findAll();
+   }
+ 
++  @Get('admin')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdmin(@Query('isActive') isActive?: string) {
++    return this.brandsService.findAll(true, activeFilter(isActive));
++  }
++
++  @Get('admin/:id')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdminOne(@Param('id') id: string) {
++    return this.brandsService.findOne(id, true);
++  }
++
++  @Post(':id/restore')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  restore(@Param('id') id: string) {
++    return this.brandsService.restore(id);
++  }
++
+   @Get(':id')
+   findOne(@Param('id') id: string) {
+     return this.brandsService.findOne(id);
+   }
+ 
+   @Post()
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   create(@Body() body: { name: string; image?: string; description?: string }) {
+     return this.brandsService.create(body);
+   }
+ 
+   @Put(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   update(@Param('id') id: string, @Body() body: any) {
+     return this.brandsService.update(id, body);
+   }
+ 
+   @Delete(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   remove(@Param('id') id: string) {
+     return this.brandsService.remove(id);
+   }
+diff --git a/src/brands/brands.service.ts b/src/brands/brands.service.ts
+index d8f6d324..dde798f4 100644
+--- a/src/brands/brands.service.ts
++++ b/src/brands/brands.service.ts
+@@ -1,64 +1,64 @@
+-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
++import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
++import { CustomCacheService } from '../cache/custom-cache.service';
++import { catalogueWrite, publicProductFilter } from '../catalogue/catalogue-policy';
++import { validateFields } from '../catalogue/validation';
+ 
+ @Injectable()
+ export class BrandsService {
+-  constructor(private readonly prisma: PrismaService) {}
++  constructor(private readonly prisma: PrismaService, private readonly cache: CustomCacheService) {}
+ 
+-  async findAll() {
++  async findAll(admin = false, isActive?: boolean) {
+     return this.prisma.brand.findMany({
+-      include: {
+-        _count: { select: { products: true } },
+-      },
++      where: admin ? { isActive } : { isActive: true },
++      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
+       orderBy: { name: 'asc' },
+     });
+   }
+ 
+-  async findOne(id: string) {
+-    const brand = await this.prisma.brand.findFirst({
+-      where: { OR: [{ id }, { slug: id }] },
+-      include: {
+-        _count: { select: { products: true } },
+-      },
++  async findOne(id: string, admin = false) {
++    const record = await this.prisma.brand.findFirst({
++      where: { OR: [{ id }, { slug: id }], ...(admin ? {} : { isActive: true }) },
++      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
+     });
+-    if (!brand) throw new NotFoundException(`Brand '${id}' not found`);
+-    return brand;
++    if (!record) throw new NotFoundException('Brand not found.');
++    return record;
+   }
+ 
+-  async create(data: { name: string; image?: string; description?: string }) {
++  async create(data: any) {
++    validateFields(data, ['name', 'image', 'description', 'isActive']);
++    if (!data.name?.trim()) throw new BadRequestException('name is required.');
+     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+-    const existing = await this.prisma.brand.findFirst({ where: { OR: [{ name: data.name }, { slug }] } });
+-    if (existing) throw new BadRequestException(`Brand '${data.name}' already exists`);
+-
+-    return this.prisma.brand.create({
+-      data: {
+-        name: data.name,
+-        slug,
+-        image: data.image || null,
+-        description: data.description || null,
+-      },
+-    });
++    return catalogueWrite(this.prisma, this.cache, tx => tx.brand.create({ data: {
++      name: data.name, slug, image: data.image || null, description: data.description || null,
++      isActive: data.isActive ?? true,
++    } }));
+   }
+ 
+   async update(id: string, data: any) {
+-    const existing = await this.prisma.brand.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Brand '${id}' not found`);
+-
+-    return this.prisma.brand.update({
+-      where: { id },
+-      data: {
+-        name: data.name ?? existing.name,
+-        image: data.image ?? existing.image,
+-        description: data.description ?? existing.description,
+-        isActive: data.isActive !== undefined ? Boolean(data.isActive) : existing.isActive,
+-      },
++    validateFields(data, ['name', 'image', 'description', 'isActive']);
++    return catalogueWrite(this.prisma, this.cache, async tx => {
++      const existing = await tx.brand.findUnique({ where: { id } });
++      if (!existing) throw new NotFoundException('Brand not found.');
++      if (data.isActive === false) await this.checkDependencies(tx, existing);
++      return tx.brand.update({ where: { id }, data: { ...data } });
+     });
+   }
+ 
++  private async checkDependencies(tx: any, record: any) {
++    const dependencies = await tx.product.count({ where: {
++      isActive: true,
++      OR: [{ brandRefId: record.id }, { brandRefId: null, OR: [{ brandId: { in: [record.id, record.slug], mode: 'insensitive' } }, { brand: { equals: record.name, mode: 'insensitive' } }] }],
++    } });
++    if (dependencies) throw new ConflictException('Archive or reassign active products before archiving this brand.');
++  }
++
+   async remove(id: string) {
+-    const existing = await this.prisma.brand.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Brand '${id}' not found`);
+-    await this.prisma.brand.delete({ where: { id } });
+-    return { success: true, message: `Brand '${existing.name}' deleted` };
++    const record = await this.update(id, { isActive: false });
++    return { success: true, message: `Brand '${record.name}' archived` };
++  }
++
++  async restore(id: string) {
++    return this.update(id, { isActive: true });
+   }
+ }
+diff --git a/src/cache/cache.controller.ts b/src/cache/cache.controller.ts
+index 6d41babe..f8e1081f 100644
+--- a/src/cache/cache.controller.ts
++++ b/src/cache/cache.controller.ts
+@@ -1,8 +1,15 @@
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { FlushCacheDto } from '../common/admin.dto';
++import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Body, Delete, Query, UseGuards } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+ import { CustomCacheService } from './custom-cache.service';
+ 
+ @ApiTags('Cache Management')
++@UseGuards(SessionAuthGuard, RolesGuard)
++@Roles('ADMIN')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+ @Controller('cache')
+ export class CacheController {
+   constructor(private readonly cacheService: CustomCacheService) {}
+@@ -27,7 +34,7 @@ export class CacheController {
+ 
+   @Post('flush')
+   @ApiOperation({ summary: 'Flush all cached entries or invalidate by prefix (e.g. products, analytics)' })
+-  async flush(@Body() body: { prefix?: string }) {
++  async flush(@Body() body: FlushCacheDto) {
+     if (body?.prefix) {
+       const cleared = await this.cacheService.invalidatePrefix(body.prefix);
+       return {
+diff --git a/src/cache/custom-cache.service.ts b/src/cache/custom-cache.service.ts
+index 1b2c8932..946b2c8a 100644
+--- a/src/cache/custom-cache.service.ts
++++ b/src/cache/custom-cache.service.ts
+@@ -56,7 +56,7 @@ export class CustomCacheService {
+         count++;
+       }
+     }
+-    this.logger.log(`Invalidated ${count} cache entries with prefix: "${prefix}"`);
++    this.logger.log(`Invalidated ${count} cache entries.`);
+     return count;
+   }
+ 
+diff --git a/src/categories/categories.controller.ts b/src/categories/categories.controller.ts
+index 2c1158bd..d51047e3 100644
+--- a/src/categories/categories.controller.ts
++++ b/src/categories/categories.controller.ts
+@@ -1,7 +1,13 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { Query } from '@nestjs/common';
++import { activeFilter } from '../catalogue/catalogue-policy';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+ import { CategoriesService } from './categories.service';
+ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+ 
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('categories')
+ export class CategoriesController {
+   constructor(private readonly categoriesService: CategoriesService) {}
+@@ -11,25 +17,49 @@ export class CategoriesController {
+     return this.categoriesService.findAll();
+   }
+ 
++  @Get('admin')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdmin(@Query('isActive') isActive?: string) {
++    return this.categoriesService.findAll(true, activeFilter(isActive));
++  }
++
++  @Get('admin/:id')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdminOne(@Param('id') id: string) {
++    return this.categoriesService.findOne(id, true);
++  }
++
++  @Post(':id/restore')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  restore(@Param('id') id: string) {
++    return this.categoriesService.restore(id);
++  }
++
+   @Get(':id')
+   findOne(@Param('id') id: string) {
+     return this.categoriesService.findOne(id);
+   }
+ 
+   @Post()
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   create(@Body() body: { name: string; image?: string; description?: string; sortOrder?: number }) {
+     return this.categoriesService.create(body);
+   }
+ 
+   @Put(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   update(@Param('id') id: string, @Body() body: any) {
+     return this.categoriesService.update(id, body);
+   }
+ 
+   @Delete(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   remove(@Param('id') id: string) {
+     return this.categoriesService.remove(id);
+   }
+diff --git a/src/categories/categories.service.ts b/src/categories/categories.service.ts
+index a583b0bd..a652bea8 100644
+--- a/src/categories/categories.service.ts
++++ b/src/categories/categories.service.ts
+@@ -1,66 +1,65 @@
+-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
++import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
++import { CustomCacheService } from '../cache/custom-cache.service';
++import { catalogueWrite, publicProductFilter } from '../catalogue/catalogue-policy';
++import { validateFields } from '../catalogue/validation';
+ 
+ @Injectable()
+ export class CategoriesService {
+-  constructor(private readonly prisma: PrismaService) {}
++  constructor(private readonly prisma: PrismaService, private readonly cache: CustomCacheService) {}
+ 
+-  async findAll() {
++  async findAll(admin = false, isActive?: boolean) {
+     return this.prisma.category.findMany({
+-      include: {
+-        _count: { select: { products: true } },
+-      },
++      where: admin ? { isActive } : { isActive: true },
++      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
+       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+     });
+   }
+ 
+-  async findOne(id: string) {
+-    const cat = await this.prisma.category.findFirst({
+-      where: { OR: [{ id }, { slug: id }] },
+-      include: {
+-        _count: { select: { products: true } },
+-      },
++  async findOne(id: string, admin = false) {
++    const record = await this.prisma.category.findFirst({
++      where: { OR: [{ id }, { slug: id }], ...(admin ? {} : { isActive: true }) },
++      include: { _count: { select: { products: { where: admin ? {} : await publicProductFilter(this.prisma) } } } },
+     });
+-    if (!cat) throw new NotFoundException(`Category '${id}' not found`);
+-    return cat;
++    if (!record) throw new NotFoundException('Category not found.');
++    return record;
+   }
+ 
+-  async create(data: { name: string; image?: string; description?: string; sortOrder?: number }) {
++  async create(data: any) {
++    validateFields(data, ['name', 'image', 'description', 'sortOrder', 'isActive']);
++    if (!data.name?.trim()) throw new BadRequestException('name is required.');
+     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+-    const existing = await this.prisma.category.findFirst({ where: { OR: [{ name: data.name }, { slug }] } });
+-    if (existing) throw new BadRequestException(`Category '${data.name}' already exists`);
+-
+-    return this.prisma.category.create({
+-      data: {
+-        name: data.name,
+-        slug,
+-        image: data.image || null,
+-        description: data.description || null,
+-        sortOrder: data.sortOrder || 0,
+-      },
+-    });
++    return catalogueWrite(this.prisma, this.cache, tx => tx.category.create({ data: {
++      name: data.name, slug, image: data.image || null, description: data.description || null,
++      sortOrder: data.sortOrder === undefined ? undefined : Number(data.sortOrder),
++      isActive: data.isActive ?? true,
++    } }));
+   }
+ 
+   async update(id: string, data: any) {
+-    const existing = await this.prisma.category.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Category '${id}' not found`);
+-
+-    return this.prisma.category.update({
+-      where: { id },
+-      data: {
+-        name: data.name ?? existing.name,
+-        image: data.image ?? existing.image,
+-        description: data.description ?? existing.description,
+-        sortOrder: data.sortOrder !== undefined ? Number(data.sortOrder) : existing.sortOrder,
+-        isActive: data.isActive !== undefined ? Boolean(data.isActive) : existing.isActive,
+-      },
++    validateFields(data, ['name', 'image', 'description', 'sortOrder', 'isActive']);
++    return catalogueWrite(this.prisma, this.cache, async tx => {
++      const existing = await tx.category.findUnique({ where: { id } });
++      if (!existing) throw new NotFoundException('Category not found.');
++      if (data.isActive === false) await this.checkDependencies(tx, existing);
++      return tx.category.update({ where: { id }, data: { ...data, sortOrder: data.sortOrder === undefined ? undefined : Number(data.sortOrder), } });
+     });
+   }
+ 
++  private async checkDependencies(tx: any, record: any) {
++    const dependencies = await tx.product.count({ where: {
++      isActive: true,
++      OR: [{ categoryId: record.id }, { categoryId: null, category: { in: [record.id, record.slug, record.name], mode: 'insensitive' } }],
++    } });
++    if (dependencies) throw new ConflictException('Archive or reassign active products before archiving this category.');
++  }
++
+   async remove(id: string) {
+-    const existing = await this.prisma.category.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Category '${id}' not found`);
+-    await this.prisma.category.delete({ where: { id } });
+-    return { success: true, message: `Category '${existing.name}' deleted` };
++    const record = await this.update(id, { isActive: false });
++    return { success: true, message: `Category '${record.name}' archived` };
++  }
++
++  async restore(id: string) {
++    return this.update(id, { isActive: true });
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/cms/cms.controller.ts b/src/cms/cms.controller.ts
+index 11043b9c..160d8256 100644
+--- a/src/cms/cms.controller.ts
++++ b/src/cms/cms.controller.ts
+@@ -1,13 +1,32 @@
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { BannerDto, PageDto, AnnouncementDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { CmsService } from './cms.service';
+ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+ 
+ @ApiTags('Storefront CMS')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+ @Controller('cms')
+ export class CmsController {
+   constructor(private readonly cmsService: CmsService) {}
+ 
++  @Get('admin/banners')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async adminBanners() { return { success: true, data: await this.cmsService.getAllBanners(true) }; }
++
++  @Get('admin/pages')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async adminPages() { return { success: true, data: await this.cmsService.getAllPages(true) }; }
++
++  @Get('admin/announcement')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async adminAnnouncement() { return { success: true, data: await this.cmsService.getAnnouncement(true) }; }
++
+   // --- BANNERS ---
+   @Get('banners')
+   @ApiOperation({ summary: 'Get all storefront hero banners & sliders' })
+@@ -24,25 +43,28 @@ export class CmsController {
+   }
+ 
+   @Post('banners')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Create new storefront hero banner' })
+-  async createBanner(@Body() body: any) {
++  async createBanner(@Body() body: BannerDto) {
+     const banner = await this.cmsService.createBanner(body);
+     return { success: true, message: 'Banner created successfully', data: banner };
+   }
+ 
+   @Put('banners/:id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update storefront banner details' })
+-  async updateBanner(@Param('id') id: string, @Body() body: any) {
++  async updateBanner(@Param('id') id: string, @Body() body: BannerDto) {
+     const banner = await this.cmsService.updateBanner(id, body);
+     return { success: true, message: 'Banner updated successfully', data: banner };
+   }
+ 
+   @Delete('banners/:id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Delete storefront banner' })
+   async deleteBanner(@Param('id') id: string) {
+@@ -66,25 +88,28 @@ export class CmsController {
+   }
+ 
+   @Post('pages')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Create new webstore page' })
+-  async createPage(@Body() body: any) {
++  async createPage(@Body() body: PageDto) {
+     const page = await this.cmsService.createPage(body);
+     return { success: true, message: 'Webstore page created successfully', data: page };
+   }
+ 
+   @Put('pages/:id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update webstore page content or publishing status' })
+-  async updatePage(@Param('id') id: string, @Body() body: any) {
++  async updatePage(@Param('id') id: string, @Body() body: PageDto) {
+     const page = await this.cmsService.updatePage(id, body);
+     return { success: true, message: 'Webstore page updated successfully', data: page };
+   }
+ 
+   @Delete('pages/:id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Delete webstore page' })
+   async deletePage(@Param('id') id: string) {
+@@ -101,10 +126,11 @@ export class CmsController {
+   }
+ 
+   @Put('announcement')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update storefront announcement bar message and styles' })
+-  async updateAnnouncement(@Body() body: any) {
++  async updateAnnouncement(@Body() body: AnnouncementDto) {
+     const announcement = await this.cmsService.updateAnnouncement(body);
+     return { success: true, message: 'Storefront announcement updated', data: announcement };
+   }
+diff --git a/src/cms/cms.service.ts b/src/cms/cms.service.ts
+index 8951e454..69a3bdd3 100644
+--- a/src/cms/cms.service.ts
++++ b/src/cms/cms.service.ts
+@@ -1,3 +1,4 @@
++import { validateFields } from '../catalogue/validation';
+ ﻿import { Injectable, NotFoundException } from '@nestjs/common';
+ import * as fs from 'fs';
+ import * as path from 'path';
+@@ -238,7 +239,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+         return;
+       }
+     } catch (e) {
+-      console.error('Error reading CMS store file, using defaults:', e);
++      console.error('Error reading CMS store file, using defaults.');
+     }
+     this.banners = [...this.defaultBanners];
+     this.pages = [...this.defaultPages];
+@@ -261,17 +262,17 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+         ),
+       );
+     } catch (e) {
+-      console.error('Failed to write CMS store file:', e);
++      console.error('Failed to write CMS store file.');
+     }
+   }
+ 
+   // --- BANNERS ---
+-  async getAllBanners() {
+-    return this.banners.sort((a, b) => a.priority - b.priority);
++  async getAllBanners(admin = false) {
++    return this.banners.filter(b => admin || b.isActive).sort((a, b) => a.priority - b.priority);
+   }
+ 
+-  async getBanner(id: string) {
+-    const banner = this.banners.find((b) => b.id === id);
++  async getBanner(id: string, admin = false) {
++    const banner = this.banners.find((b) => b.id === id && (admin || b.isActive));
+     if (!banner) throw new NotFoundException(`Banner with ID '${id}' not found`);
+     return banner;
+   }
+@@ -300,6 +301,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+   }
+ 
+   async updateBanner(id: string, data: Partial<CmsBanner>) {
++    validateFields(data, ['tag', 'title', 'subtitle', 'image', 'linkUrl', 'buttonText', 'secondaryLinkUrl', 'secondaryButtonText', 'badgeText', 'accentColor', 'priority', 'isActive']);
+     const index = this.banners.findIndex((b) => b.id === id);
+     if (index === -1) throw new NotFoundException(`Banner '${id}' not found`);
+ 
+@@ -322,12 +324,12 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+   }
+ 
+   // --- PAGES ---
+-  async getAllPages() {
+-    return this.pages;
++  async getAllPages(admin = false) {
++    return this.pages.filter(p => admin || p.isPublished);
+   }
+ 
+-  async getPageBySlug(slug: string) {
+-    const page = this.pages.find((p) => p.slug === slug || p.id === slug);
++  async getPageBySlug(slug: string, admin = false) {
++    const page = this.pages.find((p) => (p.slug === slug || p.id === slug) && (admin || p.isPublished));
+     if (!page) throw new NotFoundException(`Page '${slug}' not found`);
+     return page;
+   }
+@@ -355,6 +357,7 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+   }
+ 
+   async updatePage(id: string, data: Partial<CmsPage>) {
++    validateFields(data, ['title', 'slug', 'content', 'metaDescription', 'isPublished', 'lastUpdatedBy']);
+     const index = this.pages.findIndex((p) => p.id === id || p.slug === id);
+     if (index === -1) throw new NotFoundException(`Page '${id}' not found`);
+ 
+@@ -376,11 +379,12 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
+   }
+ 
+   // --- ANNOUNCEMENT ---
+-  async getAnnouncement() {
+-    return this.announcement;
++  async getAnnouncement(admin = false) {
++    return admin || this.announcement.isActive ? this.announcement : null;
+   }
+ 
+   async updateAnnouncement(data: Partial<CmsAnnouncement>) {
++    validateFields(data, ['text', 'linkUrl', 'badgeText', 'bgColor', 'textColor', 'isActive']);
+     this.announcement = {
+       ...this.announcement,
+       ...data,
+diff --git a/src/coupons/coupons.controller.ts b/src/coupons/coupons.controller.ts
+index 0351ac58..b515965b 100644
+--- a/src/coupons/coupons.controller.ts
++++ b/src/coupons/coupons.controller.ts
+@@ -1,40 +1,54 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { ValidateCouponDto, CreateCouponDto, UpdateCouponDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+ import { CouponsService } from './coupons.service';
+ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+ 
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('coupons')
+ export class CouponsController {
+   constructor(private readonly couponsService: CouponsService) {}
+ 
+   @Get()
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   findAll(@Query() query: any) {
+     return this.couponsService.findAll(query);
+   }
+ 
+   @Post('validate')
+-  validate(@Body() body: { code: string; cartTotal: number }) {
++  validate(@Body() body: ValidateCouponDto) {
+     return this.couponsService.validateCoupon(body.code, Number(body.cartTotal));
+   }
+ 
+   @Get(':id')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   findOne(@Param('id') id: string) {
+     return this.couponsService.findOne(id);
+   }
+ 
+   @Post()
+-  @UseGuards(JwtAuthGuard)
+-  create(@Body() body: any) {
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  create(@Body() body: CreateCouponDto) {
+     return this.couponsService.create(body);
+   }
+ 
+   @Put(':id')
+-  @UseGuards(JwtAuthGuard)
+-  update(@Param('id') id: string, @Body() body: any) {
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  update(@Param('id') id: string, @Body() body: UpdateCouponDto) {
+     return this.couponsService.update(id, body);
+   }
+ 
+   @Delete(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   remove(@Param('id') id: string) {
+     return this.couponsService.remove(id);
+   }
+diff --git a/src/coupons/coupons.service.ts b/src/coupons/coupons.service.ts
+index 5adb3ce8..3045c2f4 100644
+--- a/src/coupons/coupons.service.ts
++++ b/src/coupons/coupons.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
++import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
+ import { CouponType } from '@prisma/client';
+ 
+@@ -103,7 +103,7 @@ export class CouponsService {
+   }) {
+     const code = data.code.trim().toUpperCase();
+     const existing = await this.prisma.coupon.findUnique({ where: { code } });
+-    if (existing) throw new BadRequestException(`Coupon code '${code}' already exists`);
++    if (existing) throw new ConflictException(`Coupon code '${code}' already exists`);
+ 
+     return this.prisma.coupon.create({
+       data: {
+diff --git a/src/crm/crm.controller.ts b/src/crm/crm.controller.ts
+index 37ec5e4c..da3d82af 100644
+--- a/src/crm/crm.controller.ts
++++ b/src/crm/crm.controller.ts
+@@ -1,3 +1,8 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { RegisterCustomerDto, UpdateCustomerDto, CustomerNoteDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Param, Query, Body, UseGuards, Req } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { CrmService } from './crm.service';
+@@ -5,6 +10,10 @@ import { CustomerType } from '@prisma/client';
+ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+ 
+ @ApiTags('CRM & Customer Management')
++@UseGuards(SessionAuthGuard, RolesGuard)
++@Roles('ADMIN')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('crm')
+ export class CrmController {
+   constructor(private readonly crmService: CrmService) {}
+@@ -35,10 +44,11 @@ export class CrmController {
+   }
+ 
+   @Post('customers')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Create new customer / wholesale client' })
+-  async create(@Body() body: any) {
++  async create(@Body() body: RegisterCustomerDto) {
+     const data = await this.crmService.create(body);
+     return {
+       success: true,
+@@ -48,10 +58,11 @@ export class CrmController {
+   }
+ 
+   @Put('customers/:id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update customer details' })
+-  async update(@Param('id') id: string, @Body() body: any) {
++  async update(@Param('id') id: string, @Body() body: UpdateCustomerDto) {
+     const data = await this.crmService.update(id, body);
+     return {
+       success: true,
+@@ -61,10 +72,11 @@ export class CrmController {
+   }
+ 
+   @Post('customers/:id/notes')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Add a new CRM interaction note/log' })
+-  async addNote(@Param('id') id: string, @Body() body: { note: string }, @Req() req: any) {
++  async addNote(@Param('id') id: string, @Body() body: CustomerNoteDto, @Req() req: any) {
+     const author = req.user?.name || 'Admin';
+     const note = await this.crmService.addNote(id, body.note, author);
+     return {
+diff --git a/src/crm/crm.service.ts b/src/crm/crm.service.ts
+index a9eadab7..b2193638 100644
+--- a/src/crm/crm.service.ts
++++ b/src/crm/crm.service.ts
+@@ -1,4 +1,5 @@
+-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
++import { validateFields } from '../catalogue/validation';
++import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
+ import { CustomCacheService } from '../cache/custom-cache.service';
+ import { CustomerType } from '@prisma/client';
+@@ -139,7 +140,7 @@ export class CrmService {
+       where: { phone: data.phone },
+     });
+     if (existing) {
+-      throw new BadRequestException(`Customer with phone '${data.phone}' already exists.`);
++      throw new ConflictException('Customer with this phone already exists.');
+     }
+ 
+     const customer = await this.prisma.customer.create({
+@@ -171,6 +172,7 @@ export class CrmService {
+   }
+ 
+   async update(id: string, data: any) {
++    validateFields(data, ['name', 'phone', 'email', 'company', 'gstin', 'address', 'city', 'state', 'pincode', 'type', 'creditLimit']);
+     const existing = await this.prisma.customer.findUnique({ where: { id } });
+     if (!existing) throw new NotFoundException(`Customer '${id}' not found`);
+ 
+diff --git a/src/inventory/inventory.controller.ts b/src/inventory/inventory.controller.ts
+index 64b63673..51a78daa 100644
+--- a/src/inventory/inventory.controller.ts
++++ b/src/inventory/inventory.controller.ts
+@@ -1,9 +1,18 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { AdjustStockDto, BulkAdjustStockDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Body, Query, UseGuards, Req } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { InventoryService } from './inventory.service';
+ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+ 
+ @ApiTags('Inventory Management')
++@UseGuards(SessionAuthGuard, RolesGuard)
++@Roles('ADMIN')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('inventory')
+ export class InventoryController {
+   constructor(private readonly inventoryService: InventoryService) {}
+@@ -38,10 +47,11 @@ export class InventoryController {
+   }
+ 
+   @Post('adjust')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Execute single stock adjustment (+/-) with reason and audit log' })
+-  async adjust(@Body() body: any, @Req() req: any) {
++  async adjust(@Body() body: AdjustStockDto, @Req() req: any) {
+     const createdBy = req.user?.name || 'Admin';
+     const result = await this.inventoryService.adjustStock({
+       productId: body.productId,
+@@ -59,10 +69,11 @@ export class InventoryController {
+   }
+ 
+   @Post('bulk-adjust')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Batch inward/outward adjustment for multiple products' })
+-  async bulkAdjust(@Body() body: { items: any[] }, @Req() req: any) {
++  async bulkAdjust(@Body() body: BulkAdjustStockDto, @Req() req: any) {
+     const createdBy = req.user?.name || 'Admin';
+     const itemsWithUser = (body.items || []).map((it) => ({ ...it, createdBy }));
+     const results = await this.inventoryService.bulkAdjust(itemsWithUser);
+diff --git a/src/main.ts b/src/main.ts
+index eb66e739..a56cdf8e 100644
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -1,4 +1,5 @@
+-﻿import { NestFactory } from '@nestjs/core';
++import { PrivilegeFieldsPipe } from './auth/privilege-fields.pipe';
++import { NestFactory } from '@nestjs/core';
+ import { AppModule } from './app.module';
+ import { ValidationPipe, Logger } from '@nestjs/common';
+ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+@@ -29,6 +30,7 @@ async function bootstrap() {
+ 
+   // Validation pipe
+   app.useGlobalPipes(
++    new PrivilegeFieldsPipe(),
+     new ValidationPipe({
+       whitelist: false,
+       transform: true,
+diff --git a/src/offers/offers.controller.ts b/src/offers/offers.controller.ts
+index 997f2a2d..a68dc93f 100644
+--- a/src/offers/offers.controller.ts
++++ b/src/offers/offers.controller.ts
+@@ -1,7 +1,14 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { CreateOfferDto, UpdateOfferDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+ import { OffersService } from './offers.service';
+ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+ 
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('offers')
+ export class OffersController {
+   constructor(private readonly offersService: OffersService) {}
+@@ -11,25 +18,38 @@ export class OffersController {
+     return this.offersService.findAll(query);
+   }
+ 
++  @Get('admin')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdmin(@Query() query: any) { return this.offersService.findAll(query, true); }
++
++  @Get('admin/:id')
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  findAdminOne(@Param('id') id: string) { return this.offersService.findOne(id, true); }
++
+   @Get(':id')
+   findOne(@Param('id') id: string) {
+     return this.offersService.findOne(id);
+   }
+ 
+   @Post()
+-  @UseGuards(JwtAuthGuard)
+-  create(@Body() body: any) {
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  create(@Body() body: CreateOfferDto) {
+     return this.offersService.create(body);
+   }
+ 
+   @Put(':id')
+-  @UseGuards(JwtAuthGuard)
+-  update(@Param('id') id: string, @Body() body: any) {
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  update(@Param('id') id: string, @Body() body: UpdateOfferDto) {
+     return this.offersService.update(id, body);
+   }
+ 
+   @Delete(':id')
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   remove(@Param('id') id: string) {
+     return this.offersService.remove(id);
+   }
+diff --git a/src/offers/offers.service.ts b/src/offers/offers.service.ts
+index 97b4bb5b..6d116d0a 100644
+--- a/src/offers/offers.service.ts
++++ b/src/offers/offers.service.ts
+@@ -6,9 +6,9 @@ import { OfferTarget, CouponType } from '@prisma/client';
+ export class OffersService {
+   constructor(private readonly prisma: PrismaService) {}
+ 
+-  async findAll(query?: { isActive?: string; targetType?: OfferTarget }) {
+-    const where: any = {};
+-    if (query?.isActive !== undefined && query.isActive !== '') {
++  async findAll(query?: { isActive?: string; targetType?: OfferTarget }, admin = false) {
++    const where: any = admin ? {} : { isActive: true };
++    if (admin && query?.isActive !== undefined && query.isActive !== '') {
+       where.isActive = query.isActive === 'true';
+     }
+     if (query?.targetType) {
+@@ -21,8 +21,8 @@ export class OffersService {
+     });
+   }
+ 
+-  async findOne(id: string) {
+-    const offer = await this.prisma.offer.findUnique({ where: { id } });
++  async findOne(id: string, admin = false) {
++    const offer = await this.prisma.offer.findFirst({ where: { id, ...(admin ? {} : { isActive: true }) } });
+     if (!offer) throw new NotFoundException(`Offer '${id}' not found`);
+     return offer;
+   }
+diff --git a/src/orders/orders.controller.ts b/src/orders/orders.controller.ts
+index 8b70b83b..fe264624 100644
+--- a/src/orders/orders.controller.ts
++++ b/src/orders/orders.controller.ts
+@@ -1,3 +1,6 @@
++import { Req, UsePipes, ValidationPipe } from '@nestjs/common';
++import { CreateOrderDto, VerifyPaymentDto, UpdateOrderStatusDto, UpdatePaymentDto } from './order.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { OrdersService } from './orders.service';
+@@ -9,9 +12,16 @@ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+ export class OrdersController {
+   constructor(private readonly ordersService: OrdersService) {}
+ 
++  private customerOrder(order: any) {
++    const { customer, razorpaySignature, paymentProofUrl, paymentNotes, ...safe } = order;
++    return safe;
++  }
++
+   @Get()
++  @UseGuards(SessionAuthGuard)
+   @ApiOperation({ summary: 'Get all orders with pagination and status filters' })
+   async findAll(
++    @Req() req: any,
+     @Query('status') status?: OrderStatus,
+     @Query('search') search?: string,
+     @Query('customerId') customerId?: string,
+@@ -20,7 +30,7 @@ export class OrdersController {
+     @Query('page') page?: number,
+     @Query('limit') limit?: number,
+   ) {
+-    return this.ordersService.findAll({ status, search, customerId, customerEmail, customerPhone, page, limit });
++    return this.ordersService.findAll({ status, search, customerId, customerEmail, customerPhone, page, limit }, req.user);
+   }
+ 
+   @Get('razorpay/config')
+@@ -38,71 +48,65 @@ export class OrdersController {
+   }
+ 
+   @Post('razorpay/verify')
++  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+   @ApiOperation({ summary: 'Verify Razorpay payment signature and complete order placement' })
+   async verifyRazorpayPayment(
+     @Body()
+-    body: {
+-      razorpayOrderId: string;
+-      razorpayPaymentId: string;
+-      razorpaySignature: string;
+-      orderData: any;
+-    },
++    body: VerifyPaymentDto,
+   ) {
+     const order = await this.ordersService.verifyAndCreateOrder(body);
+     return {
+       success: true,
+       message: `Payment verified & order ${order.orderNumber} placed successfully`,
+-      data: order,
++      data: this.customerOrder(order),
+     };
+   }
+ 
+   @Get(':id')
++  @UseGuards(SessionAuthGuard)
+   @ApiOperation({ summary: 'Get order details with line items' })
+-  async findOne(@Param('id') id: string) {
+-    const data = await this.ordersService.findOne(id);
++  async findOne(@Param('id') id: string, @Req() req: any) {
++    const data = await this.ordersService.findOne(id, req.user);
+     return { success: true, data };
+   }
+ 
+   @Get(':id/invoice')
++  @UseGuards(SessionAuthGuard)
+   @ApiOperation({ summary: 'Get printable GST tax invoice data for order' })
+-  async getInvoice(@Param('id') id: string) {
+-    const data = await this.ordersService.getInvoiceData(id);
++  async getInvoice(@Param('id') id: string, @Req() req: any) {
++    const data = await this.ordersService.getInvoiceData(id, req.user);
+     return { success: true, data };
+   }
+ 
+   @Post()
++  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+   @ApiOperation({ summary: 'Create a new order (auto deducts stock & generates invoice)' })
+-  async create(@Body() body: any) {
++  async create(@Body() body: CreateOrderDto) {
+     const order = await this.ordersService.create(body);
+     return {
+       success: true,
+       message: `Order ${order.orderNumber} placed successfully`,
+-      data: order,
++      data: this.customerOrder(order),
+     };
+   }
+ 
+   @Patch(':id/status')
+-  @UseGuards(SessionAuthGuard)
++  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update order status and manual fulfillment details' })
+   async updateStatus(
+     @Param('id') id: string,
+-    @Body() body: { 
+-      status: OrderStatus; 
+-      trackingNumber?: string;
+-      courierPartner?: string;
+-      dispatchedAt?: string;
+-      expectedDeliveryDate?: string;
+-      note?: string;
+-    },
++    @Body() body: UpdateOrderStatusDto,
+   ) {
+     const updated = await this.ordersService.updateStatus(
+-      id, 
+-      body.status, 
+-      body.trackingNumber, 
+-      body.note, 
+-      body.courierPartner, 
+-      body.dispatchedAt, 
++      id,
++      body.status,
++      body.trackingNumber,
++      body.note,
++      body.courierPartner,
++      body.dispatchedAt,
+       body.expectedDeliveryDate
+     );
+     return {
+@@ -113,19 +117,15 @@ export class OrdersController {
+   }
+ 
+   @Patch(':id/payment')
+-  @UseGuards(SessionAuthGuard)
++  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update order payment status' })
+   async updatePayment(
+     @Param('id') id: string,
+     @Body()
+-    body: {
+-      paymentStatus: PaymentStatus;
+-      paymentMethod?: string;
+-      paymentProofUrl?: string;
+-      paymentReceivedAt?: string;
+-      paymentNotes?: string;
+-    },
++    body: UpdatePaymentDto,
+   ) {
+     const updated = await this.ordersService.updatePayment(id, body);
+     return {
+diff --git a/src/orders/orders.service.ts b/src/orders/orders.service.ts
+index a2bbed0b..d2ca0dae 100644
+--- a/src/orders/orders.service.ts
++++ b/src/orders/orders.service.ts
+@@ -1,4 +1,5 @@
+-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
++import { publicProductFilter } from '../catalogue/catalogue-policy';
++import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
+ import { CustomCacheService } from '../cache/custom-cache.service';
+ import { SettingsService } from '../settings/settings.service';
+@@ -47,7 +48,7 @@ export class OrdersService {
+         }
+       }
+     } catch (err) {
+-      console.error('Error syncing orphan orders to customers:', err);
++      console.error('Error syncing orphan orders to customers.');
+     }
+   }
+ 
+@@ -59,12 +60,17 @@ export class OrdersService {
+     customerPhone?: string;
+     page?: number;
+     limit?: number;
+-  }) {
++  }, actor?: { role: string; email: string }) {
+     const page = params.page ? Number(params.page) : 1;
+     const limit = params.limit ? Number(params.limit) : 15;
+     const skip = (page - 1) * limit;
+ 
+     const where: any = {};
++    if (actor?.role !== 'ADMIN') {
++      if (!actor?.email) throw new ForbiddenException('Authenticated order access required.');
++      if (params.customerEmail && params.customerEmail.toLowerCase() !== actor.email.toLowerCase()) throw new ForbiddenException('You may only view your own orders.');
++      where.AND = [{ customerEmail: { equals: actor.email, mode: 'insensitive' } }];
++    }
+     if (params.status && params.status !== ('ALL' as any)) {
+       if ((params.status as string) === 'CONFIRMED' || (params.status as string) === 'PENDING') {
+         where.status = { in: ['CONFIRMED', 'PENDING'] };
+@@ -116,11 +122,11 @@ export class OrdersService {
+       page,
+       limit,
+       totalPages: Math.ceil(total / limit),
+-      orders,
++      orders: orders.map(order => this.publicOrder(order, actor)),
+     };
+   }
+ 
+-  async findOne(id: string) {
++  async findOne(id: string, actor?: { role: string; email: string }) {
+     const order = await this.prisma.order.findFirst({
+       where: {
+         OR: [{ id }, { orderNumber: id }],
+@@ -139,7 +145,16 @@ export class OrdersService {
+     });
+ 
+     if (!order) throw new NotFoundException(`Order '${id}' not found`);
+-    return order;
++    if (actor && actor.role !== 'ADMIN' && (!actor.email || order.customerEmail?.toLowerCase() !== actor.email.toLowerCase())) {
++      throw new ForbiddenException('You may only view your own orders.');
++    }
++    return this.publicOrder(order, actor);
++  }
++
++  private publicOrder(order: any, actor?: { role: string }) {
++    if (!actor || actor.role === 'ADMIN') return order;
++    const { customer, razorpaySignature, paymentProofUrl, paymentNotes, ...safe } = order;
++    return { ...safe, items: order.items?.map(({ product, ...item }) => ({ ...item, product: null })) };
+   }
+ 
+   async getOrderHistory(id: string) {
+@@ -194,7 +209,7 @@ export class OrdersService {
+         keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_ThMMNStuG17mBM',
+       };
+     } catch (err: any) {
+-      console.error('Razorpay order creation error:', err);
++      console.error('Razorpay order creation failed.');
+       throw new BadRequestException(
+         err?.error?.description || err.message || 'Razorpay order creation failed'
+       );
+@@ -326,6 +341,8 @@ export class OrdersService {
+     // 9-digit numeric order number format
+     const orderNumber = Math.floor(100000000 + Math.random() * 900000000).toString();
+ 
++    const availableProducts = await publicProductFilter(this.prisma);
++
+     // Safely validate and resolve line items
+     let subtotal = 0;
+     const validatedLineItems = [];
+@@ -333,9 +350,10 @@ export class OrdersService {
+     for (const item of data.items) {
+       let validProductId: string | null = null;
+       if (item.productId) {
+-        const prod = await this.prisma.product.findUnique({
+-          where: { id: item.productId },
++        const prod = await this.prisma.product.findFirst({
++          where: { AND: [{ id: item.productId }, availableProducts] },
+         });
++        if (!prod) throw new BadRequestException('Product is unavailable.');
+         if (prod) {
+           validProductId = prod.id;
+         }
+@@ -454,7 +472,7 @@ export class OrdersService {
+             });
+           }
+         } catch (stockErr) {
+-          console.warn(`Failed to deduct inventory for product ${item.productId}:`, stockErr);
++          console.warn('Failed to deduct inventory.');
+         }
+       }
+     }
+@@ -465,16 +483,16 @@ export class OrdersService {
+       await this.cache.invalidatePrefix('products:');
+       await this.cache.invalidatePrefix('crm:');
+     } catch (cacheErr) {
+-      console.warn('Cache invalidation warning:', cacheErr);
++      console.warn('Cache invalidation failed.');
+     }
+ 
+     return order;
+   }
+ 
+   async updateStatus(
+-    id: string, 
+-    status: OrderStatus, 
+-    trackingNumber?: string, 
++    id: string,
++    status: OrderStatus,
++    trackingNumber?: string,
+     note?: string,
+     courierPartner?: string,
+     dispatchedAt?: string,
+@@ -568,7 +586,7 @@ export class OrdersService {
+         details.push(`Est. Delivery: ${new Date(updateData.expectedDeliveryDate || updated.expectedDeliveryDate).toLocaleDateString('en-IN')}`);
+       }
+       const label = status === OrderStatus.DISPATCHED ? 'Shipped' : status === OrderStatus.DELIVERED ? 'Delivered' : status === OrderStatus.PROCESSING ? 'Processing' : status === OrderStatus.CANCELLED ? 'Cancelled' : 'Dispatch Pending';
+-      historyNote = details.length > 0 
++      historyNote = details.length > 0
+         ? `Stage changed to ${label} (${details.join(', ')})`
+         : `Stage changed to ${label}`;
+     }
+@@ -672,8 +690,8 @@ export class OrdersService {
+     return updated;
+   }
+ 
+-  async getInvoiceData(id: string) {
+-    const order = await this.findOne(id);
++  async getInvoiceData(id: string, actor?: { role: string; email: string }) {
++    const order = await this.findOne(id, actor);
+     const settings = await this.settingsService.getSettings();
+     return {
+       company: {
+diff --git a/src/prisma/prisma.service.ts b/src/prisma/prisma.service.ts
+index 2525f6ae..cce57f07 100644
+--- a/src/prisma/prisma.service.ts
++++ b/src/prisma/prisma.service.ts
+@@ -52,7 +52,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
+ 
+       this.logger.log('Database schema verification and self-heal completed successfully.');
+     } catch (error) {
+-      this.logger.error('Error during database schema self-heal:', error);
++      this.logger.error('Error during database schema self-heal.');
+       throw error;
+     }
+   }
+diff --git a/src/products/products.controller.ts b/src/products/products.controller.ts
+index e58a1d95..d1fab8b9 100644
+--- a/src/products/products.controller.ts
++++ b/src/products/products.controller.ts
+@@ -1,9 +1,14 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { activeFilter } from '../catalogue/catalogue-policy';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { ProductsService } from './products.service';
+ import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
+ 
+ @ApiTags('Catalog & Products')
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('products')
+ export class ProductsController {
+   constructor(private readonly productsService: ProductsService) {}
+@@ -58,6 +63,28 @@ export class ProductsController {
+     return { success: true, data };
+   }
+ 
++  @Get('admin')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async findAdmin(@Query() query: any) {
++    const result = await this.productsService.findAll({ ...query, isActive: activeFilter(query.isActive) }, true);
++    return { success: true, data: result.products, total: result.total, page: result.page, limit: result.limit, totalPages: result.totalPages };
++  }
++
++  @Get('admin/:id')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async findAdminOne(@Param('id') id: string) {
++    return { success: true, data: await this.productsService.findOne(id, true) };
++  }
++
++  @Post(':id/restore')
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
++  async restore(@Param('id') id: string) {
++    return { success: true, data: await this.productsService.restore(id) };
++  }
++
+   @Get(':id')
+   @ApiOperation({ summary: 'Get single product details by ID or Slug' })
+   async findOne(@Param('id') id: string) {
+@@ -66,7 +93,8 @@ export class ProductsController {
+   }
+ 
+   @Post()
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Create a new product' })
+   async create(@Body() body: any) {
+@@ -79,7 +107,8 @@ export class ProductsController {
+   }
+ 
+   @Put(':id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update product details' })
+   async update(@Param('id') id: string, @Body() body: any) {
+@@ -92,9 +121,10 @@ export class ProductsController {
+   }
+ 
+   @Delete(':id')
+-  @UseGuards(SessionAuthGuard)
++  @UseGuards(SessionAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+-  @ApiOperation({ summary: 'Delete product' })
++  @ApiOperation({ summary: 'Archive product' })
+   async remove(@Param('id') id: string) {
+     return this.productsService.remove(id);
+   }
+diff --git a/src/products/products.service.ts b/src/products/products.service.ts
+index 576af5e0..71feb8d3 100644
+--- a/src/products/products.service.ts
++++ b/src/products/products.service.ts
+@@ -1,4 +1,6 @@
+-import { Injectable, NotFoundException } from '@nestjs/common';
++import { catalogueWrite, publicProductFilter, validateProductReferences } from '../catalogue/catalogue-policy';
++import { validateFields, productFields } from '../catalogue/validation';
++import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
+ import { CustomCacheService } from '../cache/custom-cache.service';
+ 
+@@ -10,6 +12,7 @@ export class ProductsService {
+   ) {}
+ 
+   async findAll(params: {
++    isActive?: boolean;
+     category?: string;
+     brandId?: string;
+     categoryId?: string;
+@@ -20,12 +23,19 @@ export class ProductsService {
+     stockStatus?: string;
+     page?: number;
+     limit?: number;
+-  }) {
++  }, admin = false) {
++    for (const key of ['category', 'brandId', 'categoryId', 'brandRefId', 'search', 'stockStatus']) {
++      if (params[key] !== undefined && typeof params[key] !== 'string') throw new BadRequestException(`${key} must be a string.`);
++    }
++    for (const key of ['minPrice', 'maxPrice']) {
++      if (params[key] !== undefined && (!Number.isFinite(Number(params[key])) || Number(params[key]) < 0)) throw new BadRequestException(`${key} must be a non-negative number.`);
++    }
+     const page = params.page ? Number(params.page) : 1;
+     const limit = params.limit ? Number(params.limit) : 50;
++    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new BadRequestException('Invalid pagination (limit 1-200).');
+     const skip = (page - 1) * limit;
+ 
+-    const andConditions: any[] = [];
++    const andConditions: any[] = admin ? [{ isActive: params.isActive }] : [await publicProductFilter(this.prisma)];
+ 
+     if (params.category && params.category !== 'all') {
+       andConditions.push({
+@@ -118,14 +128,10 @@ export class ProductsService {
+     };
+   }
+ 
+-  async findOne(id: string) {
+-    const cacheKey = `products:${id}`;
+-    const cached = await this.cache.get(cacheKey);
+-    if (cached) return cached;
+-
++  async findOne(id: string, admin = false) {
+     const product = await this.prisma.product.findFirst({
+       where: {
+-        OR: [{ id }, { slug: id }, { sku: id }],
++        AND: [admin ? {} : await publicProductFilter(this.prisma), { OR: [{ id }, { slug: id }, { sku: id }] }],
+       },
+       include: {
+         categoryRef: true,
+@@ -135,14 +141,14 @@ export class ProductsService {
+ 
+     if (!product) throw new NotFoundException(`Product with ID '${id}' not found`);
+ 
+-    await this.cache.set(cacheKey, product, 300);
+     return product;
+   }
+ 
+   async getCategories() {
+     return this.prisma.category.findMany({
++      where: { isActive: true },
+       include: {
+-        _count: { select: { products: true } },
++        _count: { select: { products: { where: await publicProductFilter(this.prisma) } } },
+       },
+       orderBy: { name: 'asc' },
+     });
+@@ -150,8 +156,9 @@ export class ProductsService {
+ 
+   async getBrands() {
+     return this.prisma.brand.findMany({
++      where: { isActive: true },
+       include: {
+-        _count: { select: { products: true } },
++        _count: { select: { products: { where: await publicProductFilter(this.prisma) } } },
+       },
+       orderBy: { name: 'asc' },
+     });
+@@ -175,143 +182,146 @@ export class ProductsService {
+     imageUrl?: string;
+     images?: string[];
+     bestSeller?: boolean;
++    isActive?: boolean;
+   }) {
+-    const slug = `${Date.now()}-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
+-    const brandName = (data.brand || '').trim();
+-    const brandIdVal = data.brandId 
+-      ? data.brandId.toLowerCase() 
+-      : (brandName ? brandName.toLowerCase().replace(/[^a-z0-9]/g, '-') : '');
+-    const brandCode = (brandIdVal || brandName || 'KT').toUpperCase().slice(0, 3) || 'KT';
+-    const sku = data.sku || `KT-${brandCode}-${Math.floor(1000 + Math.random() * 9000)}`;
+-    const images = Array.isArray(data.images) ? data.images.slice(0, 5) : [];
+-    const colorImages = Array.isArray((data as any).colors)
+-      ? (data as any).colors.map((c: any) => c?.image).filter(Boolean)
+-      : [];
+-    const allImages = [...images];
+-    for (const cImg of colorImages) {
+-      if (!allImages.includes(cImg) && allImages.length < 5) {
+-        allImages.push(cImg);
++    validateFields(data, productFields);
++    if (!data.name?.trim() || !data.category?.trim()) throw new BadRequestException('name and category are required.');
++    return catalogueWrite(this.prisma, this.cache, async tx => {
++      if (data.isActive !== false) await validateProductReferences(tx, data);
++      const slug = `${Date.now()}-${data.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
++      const brandName = (data.brand || '').trim();
++      const brandIdVal = data.brandId
++        ? data.brandId.toLowerCase()
++        : (brandName ? brandName.toLowerCase().replace(/[^a-z0-9]/g, '-') : '');
++      const brandCode = (brandIdVal || brandName || 'KT').toUpperCase().slice(0, 3) || 'KT';
++      const sku = data.sku || `KT-${brandCode}-${Math.floor(1000 + Math.random() * 9000)}`;
++      const images = Array.isArray(data.images) ? data.images.slice(0, 5) : [];
++      const colorImages = Array.isArray((data as any).colors)
++        ? (data as any).colors.map((c: any) => c?.image).filter(Boolean)
++        : [];
++      const allImages = [...images];
++      for (const cImg of colorImages) {
++        if (!allImages.includes(cImg) && allImages.length < 5) {
++          allImages.push(cImg);
++        }
+       }
+-    }
+-    const primaryImage = allImages[0] || data.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500';
++      const primaryImage = allImages[0] || data.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500';
+ 
+-    const sizeVariants = Array.isArray((data as any).sizeVariants) ? (data as any).sizeVariants : [];
+-    let initialPrice = Number(data.price) || 0;
+-    let initialMrp = Number(data.mrp) || initialPrice;
+-    let initialStock = Number(data.stock) || 0;
+-    let initialSizes = data.sizes || ['Free Size'];
++      const sizeVariants = Array.isArray((data as any).sizeVariants) ? (data as any).sizeVariants : [];
++      let initialPrice = Number(data.price) || 0;
++      let initialMrp = Number(data.mrp) || initialPrice;
++      let initialStock = Number(data.stock) || 0;
++      let initialSizes = data.sizes || ['Free Size'];
+ 
+-    if (sizeVariants.length > 0) {
+-      initialSizes = sizeVariants.map((v: any) => v.size).filter(Boolean);
+-      if (!initialPrice || initialPrice <= 0) {
+-        initialPrice = Number(sizeVariants[0].price) || 0;
+-      }
+-      if (!initialMrp || initialMrp <= 0) {
+-        initialMrp = Number(sizeVariants[0].mrp) || initialPrice;
++      if (sizeVariants.length > 0) {
++        initialSizes = sizeVariants.map((v: any) => v.size).filter(Boolean);
++        if (!initialPrice || initialPrice <= 0) {
++          initialPrice = Number(sizeVariants[0].price) || 0;
++        }
++        if (!initialMrp || initialMrp <= 0) {
++          initialMrp = Number(sizeVariants[0].mrp) || initialPrice;
++        }
++        initialStock = sizeVariants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
+       }
+-      initialStock = sizeVariants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
+-    }
+ 
+-    const product = await this.prisma.product.create({
+-      data: {
+-        name: data.name,
+-        slug,
+-        brand: brandName,
+-        brandId: brandIdVal,
+-        brandRefId: data.brandRefId || null,
+-        category: data.category.toLowerCase(),
+-        categoryId: data.categoryId || null,
+-        price: initialPrice,
+-        mrp: initialMrp,
+-        discount: Number(data.discount) || Math.round(((initialMrp - initialPrice) / (initialMrp || 1)) * 100),
+-        sizes: initialSizes,
+-        sizeVariants: sizeVariants,
+-        stock: initialStock,
+-        minStockAlert: Number(data.minStockAlert) || 20,
+-        description: data.description || null,
+-        sku,
+-        imageUrl: primaryImage,
+-        images: allImages.length > 0 ? allImages : [primaryImage],
+-        colors: (data as any).colors || [],
+-        bestSeller: Boolean(data.bestSeller),
+-      },
+-      include: {
+-        categoryRef: true,
+-        brandRef: true,
+-      },
++      const product = await tx.product.create({
++        data: {
++          name: data.name,
++          slug,
++          brand: brandName,
++          brandId: brandIdVal,
++          brandRefId: data.brandRefId || null,
++          category: data.category.toLowerCase(),
++          categoryId: data.categoryId || null,
++          price: initialPrice,
++          mrp: initialMrp,
++          discount: Number(data.discount) || Math.round(((initialMrp - initialPrice) / (initialMrp || 1)) * 100),
++          sizes: initialSizes,
++          sizeVariants: sizeVariants,
++          stock: initialStock,
++          minStockAlert: Number(data.minStockAlert) || 20,
++          description: data.description || null,
++          sku,
++          imageUrl: primaryImage,
++          images: allImages.length > 0 ? allImages : [primaryImage],
++          colors: (data as any).colors || [],
++          bestSeller: Boolean(data.bestSeller),
++          isActive: data.isActive ?? true,
++        },
++        include: {
++          categoryRef: true,
++          brandRef: true,
++        },
+     });
+ 
+-    await this.cache.invalidatePrefix('products:');
+-    await this.cache.invalidatePrefix('analytics:');
+-    await this.cache.invalidatePrefix('inventory:');
+-
+     return product;
++    });
+   }
+ 
+   async update(id: string, data: any) {
+-    const existing = await this.prisma.product.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Product with ID '${id}' not found`);
++    validateFields(data, productFields);
++    return catalogueWrite(this.prisma, this.cache, async tx => {
++      const existing = await tx.product.findUnique({ where: { id } });
++      if (!existing) throw new NotFoundException(`Product with ID '${id}' not found`);
+ 
+-    const updatePayload: any = { ...data };
+-    if (data.price !== undefined) updatePayload.price = Number(data.price);
+-    if (data.mrp !== undefined) updatePayload.mrp = Number(data.mrp);
+-    if (data.stock !== undefined) updatePayload.stock = Number(data.stock);
+-    if (data.minStockAlert !== undefined) updatePayload.minStockAlert = Number(data.minStockAlert);
+-    if (data.discount !== undefined) updatePayload.discount = Number(data.discount);
+-    if (data.bestSeller !== undefined) updatePayload.bestSeller = Boolean(data.bestSeller);
+-    if (data.brandRefId !== undefined) updatePayload.brandRefId = data.brandRefId || null;
+-    if (data.brand !== undefined) updatePayload.brand = (data.brand || '').trim();
+-    if (data.colors !== undefined) updatePayload.colors = data.colors;
+-    if (data.sizeVariants !== undefined) {
+-      const variants = Array.isArray(data.sizeVariants) ? data.sizeVariants : [];
+-      updatePayload.sizeVariants = variants;
+-      if (variants.length > 0) {
+-        updatePayload.sizes = variants.map((v: any) => v.size).filter(Boolean);
+-        if (data.stock === undefined) {
+-          updatePayload.stock = variants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
+-        }
+-        if (data.price === undefined && variants[0]?.price) {
+-          updatePayload.price = Number(variants[0].price);
++      if (data.isActive ?? existing.isActive) await validateProductReferences(tx, { ...existing, ...data });
++      const updatePayload: any = { ...data };
++      if (data.price !== undefined) updatePayload.price = Number(data.price);
++      if (data.mrp !== undefined) updatePayload.mrp = Number(data.mrp);
++      if (data.stock !== undefined) updatePayload.stock = Number(data.stock);
++      if (data.minStockAlert !== undefined) updatePayload.minStockAlert = Number(data.minStockAlert);
++      if (data.discount !== undefined) updatePayload.discount = Number(data.discount);
++      if (data.bestSeller !== undefined) updatePayload.bestSeller = Boolean(data.bestSeller);
++      if (data.brandRefId !== undefined) updatePayload.brandRefId = data.brandRefId || null;
++      if (data.brand !== undefined) updatePayload.brand = (data.brand || '').trim();
++      if (data.colors !== undefined) updatePayload.colors = data.colors;
++      if (data.sizeVariants !== undefined) {
++        const variants = Array.isArray(data.sizeVariants) ? data.sizeVariants : [];
++        updatePayload.sizeVariants = variants;
++        if (variants.length > 0) {
++          updatePayload.sizes = variants.map((v: any) => v.size).filter(Boolean);
++          if (data.stock === undefined) {
++            updatePayload.stock = variants.reduce((acc: number, v: any) => acc + (Number(v.stock) || 0), 0);
++          }
++          if (data.price === undefined && variants[0]?.price) {
++            updatePayload.price = Number(variants[0].price);
++          }
+         }
+       }
+-    }
+-    if (data.brandId !== undefined) {
+-      updatePayload.brandId = data.brandId ? data.brandId.toLowerCase() : '';
+-    }
+-    if (data.images !== undefined && Array.isArray(data.images)) {
+-      const images = data.images.slice(0, 5);
+-      updatePayload.images = images;
+-      if (images.length > 0) {
+-        updatePayload.imageUrl = images[0];
++      if (data.brandId !== undefined) {
++        updatePayload.brandId = data.brandId ? data.brandId.toLowerCase() : '';
++      }
++      if (data.images !== undefined && Array.isArray(data.images)) {
++        const images = data.images.slice(0, 5);
++        updatePayload.images = images;
++        if (images.length > 0) {
++          updatePayload.imageUrl = images[0];
++        }
+       }
+-    }
+ 
+-    const updated = await this.prisma.product.update({
+-      where: { id },
+-      data: updatePayload,
+-      include: {
+-        categoryRef: true,
+-        brandRef: true,
+-      },
++      const updated = await tx.product.update({
++        where: { id },
++        data: updatePayload,
++        include: {
++          categoryRef: true,
++          brandRef: true,
++        },
+     });
+ 
+-    await this.cache.invalidatePrefix('products:');
+-    await this.cache.invalidatePrefix('analytics:');
+-    await this.cache.invalidatePrefix('inventory:');
+-
+     return updated;
++    });
+   }
+ 
+   async remove(id: string) {
+-    const existing = await this.prisma.product.findUnique({ where: { id } });
+-    if (!existing) throw new NotFoundException(`Product with ID '${id}' not found`);
+-
+-    await this.prisma.product.delete({ where: { id } });
+-
+-    await this.cache.invalidatePrefix('products:');
+-    await this.cache.invalidatePrefix('analytics:');
+-    await this.cache.invalidatePrefix('inventory:');
++    const product = await catalogueWrite(this.prisma, this.cache, async tx => {
++      const existing = await tx.product.findUnique({ where: { id } });
++      if (!existing) throw new NotFoundException('Product not found.');
++      return tx.product.update({ where: { id }, data: { isActive: false } });
++    });
++    return { success: true, message: `Product ${product.name} archived` };
++  }
+ 
+-    return { success: true, message: `Product ${existing.name} deleted` };
++  async restore(id: string) {
++    return this.update(id, { isActive: true });
+   }
+ }
+diff --git a/src/session/session.controller.ts b/src/session/session.controller.ts
+index 655eea61..e70a2e71 100644
+--- a/src/session/session.controller.ts
++++ b/src/session/session.controller.ts
+@@ -1,74 +1,75 @@
+-import { Controller, Get, Delete, Param, Post, Req, Query, Body } from '@nestjs/common';
+-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { Controller, Get, Delete, Param, Post, Req, Query, Body, UseGuards, ForbiddenException, UsePipes, ValidationPipe } from '@nestjs/common';
++import { ApiTags, ApiOperation } from '@nestjs/swagger';
++import { IsOptional, IsString, MaxLength } from 'class-validator';
+ import { SessionService } from './session.service';
++import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
++
++export class SessionActionDto {
++  @IsOptional() @IsString() @MaxLength(200) reason?: string;
++  // Retained for compatibility, checked against the authenticated identity.
++  @IsOptional() @IsString() userId?: string;
++  @IsOptional() @IsString() currentToken?: string;
++}
+ 
+ @ApiTags('User Session Management')
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('session')
++@UseGuards(SessionAuthGuard)
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+ export class SessionController {
+   constructor(private readonly sessionService: SessionService) {}
+ 
++  private scope(req: any, userId?: string) {
++    if (req.user.role === 'ADMIN') return userId;
++    if (userId && userId !== req.user.id) throw new ForbiddenException('You may only manage your own sessions.');
++    return req.user.id;
++  }
++
++  private safeSession(session: any) {
++    const { token, ...safe } = session;
++    return safe;
++  }
++
+   @Get('active')
+-  @ApiOperation({ summary: 'Get all currently active user sessions' })
+-  async getActiveSessions(@Query('userId') userId?: string) {
+-    const sessions = await this.sessionService.getActiveSessions(userId);
+-    return {
+-      success: true,
+-      count: sessions.length,
+-      data: sessions,
+-    };
++  async getActiveSessions(@Req() req: any, @Query('userId') userId?: string) {
++    const sessions = await this.sessionService.getActiveSessions(this.scope(req, userId));
++    return { success: true, count: sessions.length, data: sessions.map(s => this.safeSession(s)) };
+   }
+ 
+   @Get('all')
+-  @ApiOperation({ summary: 'Get session audit history' })
+-  async getAllSessions() {
+-    const sessions = await this.sessionService.getAllSessions();
+-    return {
+-      success: true,
+-      count: sessions.length,
+-      data: sessions,
+-    };
++  async getAllSessions(@Req() req: any, @Query('userId') userId?: string) {
++    const sessions = await this.sessionService.getAllSessions(this.scope(req, userId));
++    return { success: true, count: sessions.length, data: sessions.map(s => this.safeSession(s)) };
+   }
+ 
+   @Get('stats')
+-  @ApiOperation({ summary: 'Get session analytics (active, expired, revoked count)' })
+-  async getSessionStats() {
+-    const stats = await this.sessionService.getSessionStats();
+-    return {
+-      success: true,
+-      data: stats,
+-    };
++  async getSessionStats(@Req() req: any, @Query('userId') userId?: string) {
++    return { success: true, data: await this.sessionService.getSessionStats(this.scope(req, userId)) };
+   }
+ 
+   @Delete(':id')
+-  @ApiOperation({ summary: 'Force revoke a specific user session' })
+-  async revokeSession(@Param('id') id: string, @Body() body: { reason?: string }) {
+-    const revoked = await this.sessionService.revokeSession(id, body?.reason || 'ADMIN_MANUAL_REVOCATION');
+-    return {
+-      success: true,
+-      message: 'Session successfully revoked.',
+-      data: revoked,
+-    };
++  async revokeSession(@Param('id') id: string, @Body() body: SessionActionDto, @Req() req: any) {
++    this.scope(req, body?.userId);
++    const revoked = await this.sessionService.revokeSession(id, body?.reason || 'USER_REVOCATION', req.user);
++    return { success: true, message: 'Session successfully revoked.', data: this.safeSession(revoked) };
+   }
+ 
+   @Post('revoke-others')
+-  @ApiOperation({ summary: 'Revoke all other sessions for a user' })
+-  async revokeOthers(@Body() body: { userId: string; currentToken: string }) {
+-    const result = await this.sessionService.revokeOtherSessions(body.userId, body.currentToken);
+-    return {
+-      success: true,
+-      message: `Revoked ${result.count} other active sessions.`,
+-      count: result.count,
+-    };
++  @ApiOperation({ summary: 'Revoke other sessions of the authenticated user' })
++  async revokeOthers(@Body() body: SessionActionDto, @Req() req: any) {
++    if ((body?.userId && body.userId !== req.user.id) || (body?.currentToken && body.currentToken !== req.session.token)) {
++      throw new ForbiddenException('Current user and session must match authentication.');
++    }
++    const result = await this.sessionService.revokeOtherSessions(req.user.id, req.session.token);
++    return { success: true, message: `Revoked ${result.count} other active sessions.`, count: result.count };
+   }
+ 
+   @Post('revoke-all')
+-  @ApiOperation({ summary: 'Revoke all sessions for a user (force logout)' })
+-  async revokeAll(@Body() body: { userId: string; reason?: string }) {
+-    const result = await this.sessionService.revokeAllUserSessions(body.userId, body.reason);
+-    return {
+-      success: true,
+-      message: `Revoked ${result.count} sessions for user.`,
+-      count: result.count,
+-    };
++  async revokeAll(@Body() body: SessionActionDto, @Req() req: any) {
++    const userId = this.scope(req, body?.userId) || req.user.id;
++    const result = await this.sessionService.revokeAllUserSessions(userId, body?.reason);
++    return { success: true, message: `Revoked ${result.count} sessions for user.`, count: result.count };
+   }
+ }
+diff --git a/src/session/session.service.ts b/src/session/session.service.ts
+index 162ebc23..7517daeb 100644
+--- a/src/session/session.service.ts
++++ b/src/session/session.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable, Logger } from '@nestjs/common';
++import { Injectable, Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
+ import { PrismaService } from '../prisma/prisma.service';
+ 
+ @Injectable()
+@@ -62,7 +62,7 @@ export class SessionService {
+       return null;
+     }
+ 
+-    if (new Date() > session.expiresAt) {
++    if (new Date() >= session.expiresAt) {
+       // Mark expired
+       await this.prisma.session.update({
+         where: { id: session.id },
+@@ -75,7 +75,7 @@ export class SessionService {
+     this.prisma.session.update({
+       where: { id: session.id },
+       data: { lastActiveAt: new Date() },
+-    }).catch((err) => this.logger.error('Failed updating lastActiveAt', err));
++    }).catch(() => this.logger.error('Failed updating lastActiveAt'));
+ 
+     return session;
+   }
+@@ -105,30 +105,9 @@ export class SessionService {
+     });
+   }
+ 
+-  async getDefaultAdminSession() {
+-    const adminUser = await this.prisma.user.findFirst({
+-      where: { role: 'ADMIN' },
+-      select: {
+-        id: true,
+-        email: true,
+-        name: true,
+-        role: true,
+-        phone: true,
+-        avatar: true,
+-      },
+-    });
+-    if (!adminUser) return null;
+-    return {
+-      id: 'default-admin-session',
+-      userId: adminUser.id,
+-      user: adminUser,
+-      isValid: true,
+-      expiresAt: new Date(Date.now() + 86400000),
+-    };
+-  }
+-
+-  async getAllSessions() {
++  async getAllSessions(userId?: string) {
+     return this.prisma.session.findMany({
++      where: userId ? { userId } : {},
+       include: {
+         user: {
+           select: {
+@@ -144,7 +123,12 @@ export class SessionService {
+     });
+   }
+ 
+-  async revokeSession(sessionId: string, reason = 'REVOKED_BY_ADMIN') {
++  async revokeSession(sessionId: string, reason = 'REVOKED_BY_ADMIN', actor?: { id: string; role: string }) {
++    const session = await this.prisma.session.findUnique({ where: { id: sessionId } });
++    if (!session) throw new NotFoundException('Session not found.');
++    if (actor && actor.role !== 'ADMIN' && session.userId !== actor.id) {
++      throw new ForbiddenException('You may only revoke your own sessions.');
++    }
+     return this.prisma.session.update({
+       where: { id: sessionId },
+       data: {
+@@ -178,21 +162,22 @@ export class SessionService {
+     });
+   }
+ 
+-  async getSessionStats() {
++  async getSessionStats(userId?: string) {
+     const now = new Date();
++    const scope = userId ? { userId } : {};
+     const [totalActive, totalExpired, totalRevoked, totalUsersOnline] = await Promise.all([
+       this.prisma.session.count({
+-        where: { isValid: true, expiresAt: { gt: now } },
++        where: { ...scope, isValid: true, expiresAt: { gt: now } },
+       }),
+       this.prisma.session.count({
+-        where: { expiresAt: { lte: now } },
++        where: { ...scope, expiresAt: { lte: now } },
+       }),
+       this.prisma.session.count({
+-        where: { isValid: false, revokedReason: { not: null } },
++        where: { ...scope, isValid: false, revokedReason: { not: null } },
+       }),
+       this.prisma.session.groupBy({
+         by: ['userId'],
+-        where: { isValid: true, expiresAt: { gt: now } },
++        where: { ...scope, isValid: true, expiresAt: { gt: now } },
+       }),
+     ]);
+ 
+diff --git a/src/settings/settings.controller.ts b/src/settings/settings.controller.ts
+index 5eb4fd6e..70334001 100644
+--- a/src/settings/settings.controller.ts
++++ b/src/settings/settings.controller.ts
+@@ -1,9 +1,16 @@
++import { UseFilters } from '@nestjs/common';
++import { PersistenceExceptionFilter } from '../common/persistence-exception.filter';
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { StoreSettingsBodyDto } from '../common/admin.dto';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import { Controller, Get, Put, Body, UseGuards } from '@nestjs/common';
+ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+ import { SettingsService, StoreSettingsDto } from './settings.service';
+ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+ 
+ @ApiTags('Settings')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
++@UseFilters(PersistenceExceptionFilter)
+ @Controller('settings')
+ export class SettingsController {
+   constructor(private readonly settingsService: SettingsService) {}
+@@ -15,10 +22,11 @@ export class SettingsController {
+   }
+ 
+   @Put()
+-  @UseGuards(JwtAuthGuard)
++  @UseGuards(JwtAuthGuard, RolesGuard)
++  @Roles('ADMIN')
+   @ApiBearerAuth()
+   @ApiOperation({ summary: 'Update store global settings (Admin only)' })
+-  async updateSettings(@Body() body: StoreSettingsDto) {
++  async updateSettings(@Body() body: StoreSettingsBodyDto) {
+     return this.settingsService.updateSettings(body);
+   }
+ }
+diff --git a/src/upload/upload.controller.ts b/src/upload/upload.controller.ts
+index 4150b4dd..b832a66d 100644
+--- a/src/upload/upload.controller.ts
++++ b/src/upload/upload.controller.ts
+@@ -1,3 +1,8 @@
++import { UsePipes, ValidationPipe } from '@nestjs/common';
++import { UploadBase64Dto, UploadFileDto } from '../common/admin.dto';
++import { UseGuards } from '@nestjs/common';
++import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
++import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+ import {
+   Controller,
+   Post,
+@@ -12,6 +17,9 @@ import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
+ import { UploadService, UploadFolder } from './upload.service';
+ 
+ @ApiTags('File Uploads (AWS S3 & CloudFront)')
++@UseGuards(SessionAuthGuard, RolesGuard)
++@Roles('ADMIN')
++@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
+ @Controller('upload')
+ export class UploadController {
+   constructor(private readonly uploadService: UploadService) {}
+@@ -55,7 +63,7 @@ export class UploadController {
+   @UseInterceptors(FileInterceptor('file'))
+   async uploadFile(
+     @UploadedFile() file: Express.Multer.File,
+-    @Body('folder') folder?: UploadFolder,
++    @Body() body: UploadFileDto,
+   ) {
+     if (!file) {
+       throw new BadRequestException('No file provided for upload');
+@@ -65,7 +73,7 @@ export class UploadController {
+       file.buffer,
+       file.originalname,
+       file.mimetype,
+-      folder,
++      body.folder,
+     );
+ 
+     return {
+@@ -93,7 +101,7 @@ export class UploadController {
+     },
+   })
+   async uploadBase64(
+-    @Body() body: { image: string; folder?: UploadFolder; filename?: string },
++    @Body() body: UploadBase64Dto,
+   ) {
+     if (!body || !body.image) {
+       throw new BadRequestException('Image data (base64) is required');
+diff --git a/src/upload/upload.service.ts b/src/upload/upload.service.ts
+index 43668448..3d400b47 100644
+--- a/src/upload/upload.service.ts
++++ b/src/upload/upload.service.ts
+@@ -1,4 +1,4 @@
+-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
++import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+ import * as fs from 'fs';
+ import * as path from 'path';
+@@ -61,7 +61,7 @@ export class UploadService implements OnModuleInit {
+           this.logger.warn(`⚠️ AWS_CLOUDFRONT_URL not set. Falling back to direct S3 URLs.`);
+         }
+       } catch (err: any) {
+-        this.logger.error(`Failed to initialize AWS S3 Client: ${err.message}`);
++        this.logger.error('Failed to initialize AWS S3 Client.');
+       }
+     } else {
+       this.logger.warn(
+@@ -95,7 +95,7 @@ export class UploadService implements OnModuleInit {
+         }
+       }
+     } catch (err: any) {
+-      this.logger.warn(`Could not create local upload directory: ${err.message}`);
++      this.logger.warn('Could not create local upload directory.');
+     }
+   }
+ 
+@@ -127,7 +127,7 @@ export class UploadService implements OnModuleInit {
+         created.push(folderKey);
+         this.logger.log(`📁 S3 Folder verified/created: s3://${this.bucketName}/${folderKey}`);
+       } catch (err: any) {
+-        this.logger.warn(`Warning creating S3 folder marker for ${folderKey}: ${err.message}`);
++        this.logger.warn('Failed creating S3 folder marker.');
+         errors.push(`${folderKey}: ${err.message}`);
+       }
+     }
+@@ -218,7 +218,7 @@ export class UploadService implements OnModuleInit {
+         await this.s3Client.send(command);
+         const { url, isCloudFront } = this.getPublicUrl(s3Key);
+ 
+-        this.logger.log(`Uploaded to S3: ${s3Key} -> ${url}`);
++        this.logger.log('Uploaded file to S3.');
+         return {
+           url,
+           key: s3Key,
+@@ -229,7 +229,7 @@ export class UploadService implements OnModuleInit {
+           isCloudFront,
+         };
+       } catch (err: any) {
+-        this.logger.error(`S3 upload failed: ${err.message}. Saving to local fallback.`);
++        this.logger.error('S3 upload failed. Saving to local fallback.');
+       }
+     }
+ 
+@@ -262,7 +262,7 @@ export class UploadService implements OnModuleInit {
+     folderInput?: string,
+   ): Promise<UploadResult> {
+     if (!base64Data || typeof base64Data !== 'string') {
+-      throw new Error('Invalid base64 image data');
++      throw new BadRequestException('Invalid base64 image data');
+     }
+ 
+     let mimeType = 'image/webp';
+diff --git a/src/auth/privilege-fields.pipe.ts b/src/auth/privilege-fields.pipe.ts
+new file mode 100644
+index 00000000..6842883b
+--- /dev/null
++++ b/src/auth/privilege-fields.pipe.ts
+@@ -0,0 +1,19 @@
++import { ArgumentMetadata, BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
++
++@Injectable()
++export class PrivilegeFieldsPipe implements PipeTransform {
++  transform(value: any, metadata: ArgumentMetadata) {
++    if (metadata.type !== 'body') return value;
++    const inspect = (input: any) => {
++      if (!input || typeof input !== 'object') return;
++      for (const [key, nested] of Object.entries(input)) {
++        if (['role', 'roles', 'permissions', 'isAdmin', 'passwordHash', 'sessions', '__proto__', 'constructor', 'prototype'].includes(key)) {
++          throw new BadRequestException(`Unexpected privilege-bearing field: ${key}`);
++        }
++        inspect(nested);
++      }
++    };
++    inspect(value);
++    return value;
++  }
++}
+diff --git a/src/catalogue/catalogue-policy.ts b/src/catalogue/catalogue-policy.ts
+new file mode 100644
+index 00000000..2364399c
+--- /dev/null
++++ b/src/catalogue/catalogue-policy.ts
+@@ -0,0 +1,71 @@
++import { BadRequestException, ConflictException } from '@nestjs/common';
++import { Prisma } from '@prisma/client';
++import { PrismaService } from '../prisma/prisma.service';
++import { CustomCacheService } from '../cache/custom-cache.service';
++
++export const publicProductWhere: Prisma.ProductWhereInput = {
++  isActive: true,
++  AND: [
++    { OR: [{ categoryId: null }, { categoryRef: { isActive: true } }] },
++    { OR: [{ brandRefId: null }, { brandRef: { isActive: true } }] },
++  ],
++};
++
++export function activeFilter(value?: string): boolean | undefined {
++  if (value === undefined || value === 'all') return undefined;
++  if (value === 'true') return true;
++  if (value === 'false') return false;
++  throw new BadRequestException('isActive must be true, false or all.');
++}
++
++// Every catalogue mutation participates in the same serializable dependency policy.
++export async function catalogueWrite<T>(prisma: PrismaService, cache: CustomCacheService,
++  operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
++  let result: T;
++  try {
++    result = await prisma.$transaction(operation, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
++  } catch (error) {
++    if (error?.code === 'P2034') throw new ConflictException('Catalogue changed concurrently. Please retry.');
++    if (error?.code === 'P2002') throw new ConflictException('A catalogue record with these unique values already exists.');
++    if (error?.code === 'P2003') throw new ConflictException('A related catalogue record is not usable.');
++    throw error;
++  }
++  for (const prefix of ['products:', 'categories:', 'brands:', 'analytics:', 'inventory:']) {
++    await cache.invalidatePrefix(prefix);
++  }
++  return result;
++}
++
++export async function validateProductReferences(tx: Prisma.TransactionClient, data: {
++  categoryId?: string; brandRefId?: string; category?: string; brand?: string; brandId?: string;
++}) {
++  const category = data.categoryId
++    ? await tx.category.findUnique({ where: { id: data.categoryId } })
++    : data.category ? await tx.category.findFirst({ where: { OR: [
++        { id: data.category }, { slug: { equals: data.category, mode: 'insensitive' } },
++        { name: { equals: data.category, mode: 'insensitive' } },
++      ] } }) : null;
++  const brand = data.brandRefId
++    ? await tx.brand.findUnique({ where: { id: data.brandRefId } })
++    : await tx.brand.findFirst({ where: { OR: [
++        ...(data.brandId ? [{ id: data.brandId }, { slug: { equals: data.brandId, mode: 'insensitive' as const } }] : []),
++        ...(data.brand ? [{ name: { equals: data.brand, mode: 'insensitive' as const } }] : []),
++      ] } });
++  if ((data.categoryId && !category) || (category && !category.isActive)) throw new ConflictException('Product requires an active category.');
++  if ((data.brandRefId && !brand) || (brand && !brand.isActive)) throw new ConflictException('Product requires an active brand.');
++}
++
++// Older products may use category/brand text without a foreign-key reference.
++export async function publicProductFilter(prisma: PrismaService): Promise<Prisma.ProductWhereInput> {
++  const [categories, brands] = await Promise.all([
++    prisma.category.findMany({ where: { isActive: false }, select: { id: true, slug: true, name: true } }),
++    prisma.brand.findMany({ where: { isActive: false }, select: { id: true, slug: true, name: true } }),
++  ]);
++  return { AND: [publicProductWhere,
++    ...(categories.length ? [{ NOT: { categoryId: null, category: { in: categories.flatMap(c => [c.id, c.slug, c.name]), mode: 'insensitive' as const } } }] : []),
++    ...(brands.length ? [{ NOT: { brandRefId: null, OR: [
++      { brandId: { in: brands.flatMap(b => [b.id, b.slug]), mode: 'insensitive' as const } },
++      { brand: { in: brands.map(b => b.name), mode: 'insensitive' as const } },
++    ] } }] : []),
++  ] };
++}
+diff --git a/src/catalogue/validation.ts b/src/catalogue/validation.ts
+new file mode 100644
+index 00000000..75a70298
+--- /dev/null
++++ b/src/catalogue/validation.ts
+@@ -0,0 +1,41 @@
++import { BadRequestException } from '@nestjs/common';
++
++// Explicit scalar allowlists prevent nested Prisma writes and privilege-field injection.
++export function validateFields(data: any, fields: string[]) {
++  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new BadRequestException('An object body is required.');
++  for (const key of Object.keys(data)) {
++    if (!fields.includes(key)) throw new BadRequestException(`Unexpected field: ${key}`);
++  }
++  for (const key of ['name', 'category', 'brand', 'brandId', 'categoryId', 'brandRefId', 'sku', 'slug', 'image', 'imageUrl', 'description']) {
++    if (data[key] !== undefined && data[key] !== null && typeof data[key] !== 'string') throw new BadRequestException(`${key} must be a string.`);
++  }
++  for (const key of ['category', 'brand', 'brandId', 'sku']) {
++    if (data[key] === null) throw new BadRequestException(`${key} must be a string.`);
++  }
++  for (const key of ['isActive', 'bestSeller']) {
++    if (data[key] !== undefined && typeof data[key] !== 'boolean') throw new BadRequestException(`${key} must be a boolean.`);
++  }
++  for (const key of ['price', 'mrp', 'discount', 'stock', 'minStockAlert', 'sortOrder']) {
++    if (data[key] !== undefined && (data[key] === null || data[key] === '' || !['string', 'number'].includes(typeof data[key]) || !Number.isFinite(Number(data[key])) || Number(data[key]) < 0)) {
++      throw new BadRequestException(`${key} must be a non-negative number.`);
++    }
++  }
++  for (const key of ['stock', 'minStockAlert', 'sortOrder']) {
++    if (data[key] !== undefined && !Number.isInteger(Number(data[key]))) throw new BadRequestException(`${key} must be an integer.`);
++  }
++  for (const key of ['sizes', 'images', 'colors', 'sizeVariants']) {
++    if (data[key] !== undefined && !Array.isArray(data[key])) throw new BadRequestException(`${key} must be an array.`);
++  }
++  for (const key of ['sizes', 'images']) {
++    if (data[key]?.some((value: any) => typeof value !== 'string')) throw new BadRequestException(`${key} must contain strings.`);
++  }
++  if (data.sizeVariants !== undefined) {
++    for (const variant of data.sizeVariants) {
++      validateFields(variant, ['size', 'price', 'mrp', 'stock', 'sku']);
++      if (typeof variant.size !== 'string' || !variant.size.trim()) throw new BadRequestException('Each variant requires a size.');
++    }
++  }
++  if (data.name !== undefined && (typeof data.name !== 'string' || !data.name.trim())) throw new BadRequestException('name must not be empty.');
++}
++
++export const productFields = ['name', 'brand', 'brandId', 'brandRefId', 'category', 'categoryId', 'price', 'mrp', 'discount', 'sizes', 'stock', 'minStockAlert', 'description', 'sku', 'imageUrl', 'images', 'bestSeller', 'colors', 'sizeVariants', 'isActive'];
+diff --git a/src/common/admin.dto.ts b/src/common/admin.dto.ts
+new file mode 100644
+index 00000000..5da6fa18
+--- /dev/null
++++ b/src/common/admin.dto.ts
+@@ -0,0 +1,143 @@
++import { Exclude, Transform, Type } from 'class-transformer';
++import { PartialType } from '@nestjs/swagger';
++import { ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, Min, ValidateIf, ValidateNested } from 'class-validator';
++import { CouponType, CustomerType, OfferTarget } from '@prisma/client';
++
++// Preserve numeric form inputs without coercing null, booleans or empty strings to zero.
++const Numeric = () => Transform(({ value }) => typeof value === 'string' && value.trim() ? Number(value) : value);
++const Optional = () => ValidateIf((_object, value) => value !== undefined);
++// Existing forms use an empty string to clear optional date fields.
++const OptionalDate = () => Transform(({ value }) => value === '' ? null : value);
++
++export class ValidateCouponDto {
++  @IsString() @Matches(/\S/) code: string;
++  @Numeric() @IsNumber() @Min(0) cartTotal: number;
++}
++export class CreateCouponDto {
++  @IsString() @Matches(/\S/) code: string;
++  @IsOptional() @IsString() description?: string;
++  @Optional() @IsEnum(CouponType) type?: CouponType;
++  @Numeric() @IsNumber() @Min(0) value: number;
++  @Optional() @Numeric() @IsNumber() @Min(0) minOrderAmount?: number;
++  @Transform(({ value }) => value === '' ? null : value) @IsOptional() @Numeric() @IsNumber() @Min(0) maxDiscountAmount?: number;
++  @Transform(({ value }) => value === '' ? null : value) @IsOptional() @Numeric() @IsInt() @Min(0) usageLimit?: number;
++  @OptionalDate() @IsOptional() @IsDateString() validFrom?: string;
++  @OptionalDate() @IsOptional() @IsDateString() validUntil?: string;
++  @Optional() @IsArray() @IsString({ each: true }) applicableCategories?: string[];
++  @Optional() @IsBoolean() isActive?: boolean;
++}
++export class UpdateCouponDto extends PartialType(CreateCouponDto, { skipNullProperties: false }) {}
++
++export class CreateOfferDto {
++  @IsString() @Matches(/\S/) title: string;
++  @IsOptional() @IsString() description?: string;
++  @IsOptional() @IsString() bannerImage?: string;
++  @Optional() @IsEnum(CouponType) discountType?: CouponType;
++  @Numeric() @IsNumber() @Min(0) discountValue: number;
++  @Optional() @IsEnum(OfferTarget) targetType?: OfferTarget;
++  @IsOptional() @IsString() targetId?: string;
++  @IsOptional() @IsString() targetName?: string;
++  @OptionalDate() @IsOptional() @IsDateString() startDate?: string;
++  @OptionalDate() @IsOptional() @IsDateString() endDate?: string;
++  @Optional() @Numeric() @IsInt() priority?: number;
++  @IsOptional() @IsString() badgeText?: string;
++  @Optional() @IsBoolean() isActive?: boolean;
++}
++export class UpdateOfferDto extends PartialType(CreateOfferDto, { skipNullProperties: false }) {}
++
++// The CMS editor round-trips these server-owned fields. Accept but never write them.
++class CmsReadOnlyDto {
++  @Exclude({ toClassOnly: true }) id?: string;
++  @Exclude({ toClassOnly: true }) createdAt?: string;
++  @Exclude({ toClassOnly: true }) updatedAt?: string;
++}
++export class BannerDto extends CmsReadOnlyDto {
++  @Optional() @IsString() title?: string;
++  @Optional() @IsString() tag?: string;
++  @Optional() @IsString() subtitle?: string;
++  @Optional() @IsString() image?: string;
++  @Optional() @IsString() linkUrl?: string;
++  @Optional() @IsString() buttonText?: string;
++  @Optional() @IsString() secondaryLinkUrl?: string;
++  @Optional() @IsString() secondaryButtonText?: string;
++  @Optional() @IsString() badgeText?: string;
++  @Optional() @IsString() accentColor?: string;
++  @Optional() @Numeric() @IsInt() priority?: number;
++  @Optional() @IsBoolean() isActive?: boolean;
++}
++export class PageDto extends CmsReadOnlyDto {
++  @Optional() @IsString() title?: string;
++  @Optional() @IsString() slug?: string;
++  @Optional() @IsString() content?: string;
++  @Optional() @IsString() metaDescription?: string;
++  @Optional() @IsBoolean() isPublished?: boolean;
++  @Optional() @IsString() lastUpdatedBy?: string;
++}
++export class AnnouncementDto extends CmsReadOnlyDto {
++  @Optional() @IsString() text?: string;
++  @Optional() @IsString() linkUrl?: string;
++  @Optional() @IsString() badgeText?: string;
++  @Optional() @IsString() bgColor?: string;
++  @Optional() @IsString() textColor?: string;
++  @Optional() @IsBoolean() isActive?: boolean;
++}
++
++export class CreateCustomerDto {
++  @IsString() @Matches(/\S/) name: string;
++  @IsString() @Matches(/\S/) phone: string;
++  @Transform(({ value }) => value === '' ? null : value) @IsOptional() @IsEmail() email?: string;
++  @IsOptional() @IsString() company?: string;
++  @IsOptional() @IsString() gstin?: string;
++  @IsOptional() @IsString() address?: string;
++  @IsOptional() @IsString() city?: string;
++  @IsOptional() @IsString() state?: string;
++  @IsOptional() @IsString() pincode?: string;
++  @Optional() @IsEnum(CustomerType) type?: CustomerType;
++  @Optional() @Numeric() @IsNumber() @Min(0) creditLimit?: number;
++}
++export class RegisterCustomerDto extends CreateCustomerDto {
++  @Optional() @IsString() initialNote?: string;
++}
++export class UpdateCustomerDto extends PartialType(CreateCustomerDto, { skipNullProperties: false }) {}
++export class CustomerNoteDto {
++  @IsString() @Matches(/\S/) note: string;
++}
++
++export class AdjustStockDto {
++  @IsString() @IsNotEmpty() productId: string;
++  @Numeric() @IsInt() delta: number;
++  @IsString() @Matches(/\S/) reason: string;
++  @IsOptional() @IsString() note?: string;
++  @IsOptional() @IsString() size?: string;
++}
++export class BulkAdjustStockDto {
++  @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => AdjustStockDto)
++  items: AdjustStockDto[];
++}
++export class StoreSettingsBodyDto {
++  @Optional() @IsString() companyName?: string;
++  @Optional() @IsString() companyTagline?: string;
++  @Optional() @IsString() companyAddress?: string;
++  @Optional() @IsString() companyCity?: string;
++  @Optional() @IsString() companyState?: string;
++  @Optional() @IsString() companyPincode?: string;
++  @Optional() @IsString() companyPhone?: string;
++  @Optional() @IsString() companyEmail?: string;
++  @Optional() @IsString() companyGstin?: string;
++  @Optional() @IsString() companyPan?: string;
++  @Optional() @IsString() companyWebsite?: string;
++  @Optional() @Numeric() @IsNumber() @Min(0) gstRate?: number;
++  @Optional() @Numeric() @IsNumber() @Min(0) defaultDiscountRate?: number;
++  @Optional() @Numeric() @IsNumber() @Min(0) minOrderValue?: number;
++  @Optional() @Numeric() @IsNumber() @Min(0) freeShippingThreshold?: number;
++}
++export class UploadFileDto {
++  @Optional() @IsString() folder?: string;
++}
++export class UploadBase64Dto extends UploadFileDto {
++  @IsString() @IsNotEmpty() image: string;
++  @Optional() @IsString() filename?: string;
++}
++export class FlushCacheDto {
++  @Optional() @IsString() prefix?: string;
++}
+diff --git a/src/common/persistence-exception.filter.ts b/src/common/persistence-exception.filter.ts
+new file mode 100644
+index 00000000..17c4bb63
+--- /dev/null
++++ b/src/common/persistence-exception.filter.ts
+@@ -0,0 +1,28 @@
++import { ArgumentsHost, Catch, ExceptionFilter } from '@nestjs/common';
++import { Prisma } from '@prisma/client';
++
++// Applied only to the reviewed administrative/catalogue controllers. Never expose
++// Prisma exception messages: they can contain request values and database details.
++@Catch(Prisma.PrismaClientKnownRequestError, Prisma.PrismaClientValidationError)
++export class PersistenceExceptionFilter implements ExceptionFilter {
++  catch(exception: Prisma.PrismaClientKnownRequestError | Prisma.PrismaClientValidationError, host: ArgumentsHost) {
++    let status = 500;
++    let message = 'Unable to complete the request.';
++    if (exception instanceof Prisma.PrismaClientValidationError ||
++        ('code' in exception && ['P2000', 'P2005', 'P2006', 'P2007', 'P2011', 'P2012', 'P2013'].includes(exception.code))) {
++      status = 400;
++      message = 'Invalid request data.';
++    } else if ('code' in exception && ['P2002', 'P2003', 'P2014', 'P2034'].includes(exception.code)) {
++      status = 409;
++      message = 'The request conflicts with existing data or a concurrent change.';
++    } else if ('code' in exception && exception.code === 'P2025') {
++      status = 404;
++      message = 'Resource not found.';
++    }
++    host.switchToHttp().getResponse().status(status).json({
++      statusCode: status,
++      message,
++      error: ({ 400: 'Bad Request', 404: 'Not Found', 409: 'Conflict', 500: 'Internal Server Error' })[status],
++    });
++  }
++}
+diff --git a/src/orders/order.dto.ts b/src/orders/order.dto.ts
+new file mode 100644
+index 00000000..1ab6f00b
+--- /dev/null
++++ b/src/orders/order.dto.ts
+@@ -0,0 +1,45 @@
++import { OrderStatus, PaymentStatus } from '@prisma/client';
++import { Type } from 'class-transformer';
++import { ArrayMaxSize, ArrayMinSize, Equals, IsArray, IsEmail, IsEnum, IsDateString, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
++
++export class OrderItemDto {
++  @IsString() @IsNotEmpty() productId: string;
++  @IsString() @IsNotEmpty() productName: string;
++  @IsOptional() @IsString() size?: string;
++  @IsOptional() @IsString() color?: string;
++  @IsInt() @Min(1) quantity: number;
++  @IsNumber() @Min(0) unitPrice: number;
++}
++export class CreateOrderDto {
++  @IsString() @IsNotEmpty() customerName: string;
++  @IsString() @IsNotEmpty() customerPhone: string;
++  @IsOptional() @IsEmail() customerEmail?: string;
++  @IsString() @IsNotEmpty() shippingAddress: string;
++  @IsOptional() @IsString() paymentMethod?: string;
++  @IsOptional() @Equals('UNPAID') paymentStatus?: 'UNPAID';
++  @IsOptional() @IsString() notes?: string;
++  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => OrderItemDto)
++  items: OrderItemDto[];
++}
++export class VerifyPaymentDto {
++  @IsString() @IsNotEmpty() razorpayOrderId: string;
++  @IsString() @IsNotEmpty() razorpayPaymentId: string;
++  @IsString() @IsNotEmpty() razorpaySignature: string;
++  @ValidateNested() @Type(() => CreateOrderDto) @IsNotEmpty() orderData: CreateOrderDto;
++}
++
++export class UpdateOrderStatusDto {
++  @IsEnum(OrderStatus) status: OrderStatus;
++  @IsOptional() @IsString() trackingNumber?: string;
++  @IsOptional() @IsString() courierPartner?: string;
++  @IsOptional() @IsDateString() dispatchedAt?: string;
++  @IsOptional() @IsDateString() expectedDeliveryDate?: string;
++  @IsOptional() @IsString() note?: string;
++}
++export class UpdatePaymentDto {
++  @IsEnum(PaymentStatus) paymentStatus: PaymentStatus;
++  @IsOptional() @IsString() paymentMethod?: string;
++  @IsOptional() @IsString() paymentProofUrl?: string;
++  @IsOptional() @IsDateString() paymentReceivedAt?: string;
++  @IsOptional() @IsString() paymentNotes?: string;
++}
+diff --git a/test/requirements-review.test.cjs b/test/requirements-review.test.cjs
+new file mode 100644
+index 00000000..c417833b
+--- /dev/null
++++ b/test/requirements-review.test.cjs
+@@ -0,0 +1,264 @@
++require('reflect-metadata');
++const { test, before, after, beforeEach } = require('node:test');
++const assert = require('node:assert/strict');
++const { Module, ValidationPipe } = require('@nestjs/common');
++const { NestFactory } = require('@nestjs/core');
++const { JwtService } = require('@nestjs/jwt');
++const { Prisma } = require('@prisma/client');
++const bcrypt = require('bcryptjs');
++const { SessionService } = require('../src/session/session.service');
++const { SessionController } = require('../src/session/session.controller');
++const { SessionAuthGuard } = require('../src/auth/guards/session-auth.guard');
++const { RolesGuard } = require('../src/auth/guards/roles.guard');
++const { AuthService } = require('../src/auth/auth.service');
++const { AuthController } = require('../src/auth/auth.controller');
++const { PrivilegeFieldsPipe } = require('../src/auth/privilege-fields.pipe');
++const { PersistenceExceptionFilter } = require('../src/common/persistence-exception.filter');
++const { validateFields, productFields } = require('../src/catalogue/validation');
++const dto = require('../src/common/admin.dto');
++const status = n => e => e.getStatus?.() === n;
++const buyer = { id: 'buyer', name: 'Buyer', email: 'buyer@example.test', role: 'CUSTOMER' };
++const other = { id: 'other', name: 'Other', email: 'other@example.test', role: 'CUSTOMER' };
++const admin = { id: 'admin', name: 'Admin', email: 'admin@example.test', role: 'ADMIN' };
++let app, base, rows, calls, revokeWrites, nextError, lookupError = false;
++function stored(user, token = user.id, overrides = {}) {
++  return { id: `${token}-session`, userId: user.id, user, token, isValid: true, expiresAt: new Date(Date.now() + 60000), ...overrides };
++}
++function matches(row, where = {}) {
++  return Object.entries(where).every(([key, value]) => {
++    if (value && typeof value === 'object') {
++      if ('not' in value) return row[key] !== value.not;
++      if ('gt' in value) return row[key] > value.gt;
++      if ('lte' in value) return row[key] <= value.lte;
++    }
++    return row[key] === value;
++  });
++}
++const persistence = { session: {
++  findUnique: async ({ where }) => { if (lookupError) throw new Error('secret-db-error'); return rows.find(r => matches(r, where)) || null; },
++  findMany: async ({ where }) => rows.filter(r => matches(r, where)),
++  count: async ({ where }) => rows.filter(r => matches(r, where)).length,
++  groupBy: async ({ where }) => [...new Set(rows.filter(r => matches(r, where)).map(r => r.userId))].map(userId => ({ userId })),
++  update: async ({ where, data }) => { if ('isValid' in data) revokeWrites++; const r = rows.find(r => matches(r, where)); return Object.assign(r, data); },
++  updateMany: async ({ where, data }) => { const selected = rows.filter(r => matches(r, where)); selected.forEach(r => Object.assign(r, data)); revokeWrites += selected.length; return { count: selected.length }; },
++  create: async ({ data }) => { const row = { id: 'login-session', ...data, user: buyer }; rows.push(row); return row; },
++} };
++
++before(async () => {
++  const controllers = [SessionController, AuthController];
++  const passwordHash = await bcrypt.hash('test-password', 4);
++  persistence.user = { findUnique: async ({ where }) => where.email === buyer.email ? { ...buyer, passwordHash } : null };
++  const sessions = new SessionService(persistence);
++  const providers = [SessionAuthGuard, RolesGuard, PersistenceExceptionFilter,
++    { provide: SessionService, useValue: sessions },
++    { provide: AuthService, useValue: new AuthService(persistence, new JwtService({ secret: 'test-only-key', signOptions: { expiresIn: '72h' } }), sessions) },
++  ];
++  for (const name of ['coupons','offers','cms','crm','inventory','settings','upload','cache']) {
++    const Controller = Object.values(require(`../src/${name}/${name}.controller`)).find(v => typeof v === 'function' && v.name.endsWith('Controller'));
++    const Service = Object.values(require(`../src/${name}/${name === 'cache' ? 'custom-cache' : name}.service`)).find(v => typeof v === 'function' && v.name.endsWith('Service'));
++    controllers.push(Controller);
++    const stub = {};
++    for (const method of Object.getOwnPropertyNames(Service.prototype).filter(k => k !== 'constructor' && k !== 'onModuleInit')) {
++      stub[method] = async (...args) => { calls.push({ name, method, args }); if (nextError) { const error = nextError; nextError = null; throw error; } return method === 'bulkAdjust' ? [] : {}; };
++    }
++    providers.push({ provide: Service, useValue: stub });
++  }
++  class ReviewModule {}
++  Module({ controllers, providers })(ReviewModule);
++  app = await NestFactory.create(ReviewModule, { logger: false });
++  app.setGlobalPrefix('api');
++  app.useGlobalPipes(new PrivilegeFieldsPipe(), new ValidationPipe({ transform: true }));
++  await app.listen(0, '127.0.0.1'); base = await app.getUrl();
++});
++beforeEach(() => {
++  rows = [stored(buyer), stored(buyer, 'buyer-second'), stored(other), stored(admin), stored(buyer, 'expired', { expiresAt: new Date(0) }), stored(buyer, 'revoked', { isValid: false })];
++  calls = []; revokeWrites = 0; nextError = null; lookupError = false;
++});
++after(async () => { await app?.close(); });
++async function request(path, method = 'GET', token = 'admin', body) {
++  return fetch(`${base}/api${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
++}
++
++const invalidRequests = [
++  ['/coupons/validate', 'POST', { code: {}, cartTotal: 1 }],
++  ['/coupons', 'POST', { code: 'TEST', value: 'bad' }],
++  ['/coupons/id', 'PUT', { isActive: 'false' }],
++  ['/offers', 'POST', { title: 'Sale', discountValue: 5, targetType: 'INVALID' }],
++  ['/offers/id', 'PUT', { endDate: 'not-a-date' }],
++  ['/cms/banners', 'POST', { isActive: 'false' }],
++  ['/cms/pages/id', 'PUT', { isPublished: 'false' }],
++  ['/cms/announcement', 'PUT', { isActive: null }],
++  ['/crm/customers', 'POST', { name: 'Buyer', phone: {}, type: 'VIP' }],
++  ['/crm/customers/id', 'PUT', { creditLimit: 'NaN' }],
++  ['/crm/customers/id/notes', 'POST', { note: { userId: 'forged' } }],
++  ['/inventory/adjust', 'POST', { productId: 'p1', delta: 1.5, reason: 'Stock' }],
++  ['/inventory/bulk-adjust', 'POST', { items: [{ productId: 'p1', delta: 1, reason: 'Stock', createdBy: 'forged' }] }],
++  ['/settings', 'PUT', { gstRate: null }],
++  ['/upload/base64', 'POST', { image: {}, folder: 'Bill' }],
++  ['/cache/flush', 'POST', { prefix: {} }],
++];
++for (const [path, method, body] of invalidRequests) {
++  test(`Section 5: ${method} ${path} rejects invalid DTO before handler`, async () => {
++    const res = await request(path, method, 'admin', body);
++    assert.equal(res.status, 400, JSON.stringify(await res.json()));
++    assert.equal(calls.length, 0);
++  });
++}
++test('Section 5: unexpected identity/privilege fields are rejected on admin DTOs', async () => {
++  for (const body of [{ userId: 'other' }, { role: 'ADMIN' }, { nested: { permissions: ['ADMIN'] } }]) {
++    assert.equal((await request('/settings', 'PUT', 'admin', body)).status, 400);
++  }
++  assert.equal(calls.length, 0);
++});
++test('AUTHZ: validation never replaces 401/403 authentication and role enforcement', async () => {
++  for (const path of ['/coupons/id','/offers/id','/cms/pages/id','/crm/customers/id','/settings']) {
++    assert.equal((await request(path, 'PUT', null, { role: 'ADMIN' })).status, 401);
++    assert.equal((await request(path, 'PUT', 'buyer', { role: 'ADMIN' })).status, 403);
++  }
++  assert.equal(calls.length, 0);
++});
++test('CAT07: existing form numbers, blank optional dates, empty CRM email and false booleans remain valid', async () => {
++  const payloads = [
++    ['/coupons','POST',{ code: 'TEST', value: '10', minOrderAmount: '0', maxDiscountAmount: '', usageLimit: '', validFrom: '', validUntil: '', isActive: false }],
++    ['/offers','POST',{ title: 'Sale', discountValue: '10', startDate: '', endDate: '', priority: '1', isActive: false }],
++    ['/crm/customers','POST',{ name: 'Buyer', phone: '1234567890', email: '', type: 'RETAIL', creditLimit: '0', initialNote: '' }],
++    ['/inventory/adjust','POST',{ productId: 'p1', delta: '-2', reason: 'Adjustment' }],
++    ['/settings','PUT',{ companyName: 'Store', gstRate: '5', defaultDiscountRate: 0, minOrderValue: 0, freeShippingThreshold: 0 }],
++  ];
++  for (const [path, method, body] of payloads) {
++    const res = await request(path, method, 'admin', body);
++    assert.equal(res.status, method === 'POST' ? 201 : 200, JSON.stringify(await res.json()));
++  }
++  assert.equal(calls[0].args[0].isActive, false);
++  assert.equal(calls[0].args[0].value, 10);
++});
++test('CAT07: announcement editor can round-trip metadata without changing server fields', async () => {
++  const res = await request('/cms/announcement','PUT','admin',{ id: 'forged', updatedAt: 'old', text: 'New text', isActive: false });
++  assert.equal(res.status, 200);
++  assert.deepEqual({ ...calls[0].args[0] }, { text: 'New text', isActive: false });
++});
++test('CAT07: product variant SKU is accepted; null required fields and nested operations are rejected', () => {
++  assert.doesNotThrow(() => validateFields({ categoryId: null, brandRefId: null, sizeVariants: [{ size: 'XL', price: 10, mrp: 20, stock: 4, sku: 'XL-1' }] }, productFields));
++  for (const body of [{ category: null }, { brand: null }, { brandId: null }, { sku: null }, { sizeVariants: [{ size: 'XL', sku: {} }] }, { categoryRef: { delete: true } }]) {
++    assert.throws(() => validateFields(body, productFields), status(400));
++  }
++});
++
++for (const code of ['P2002','P2003','P2034','P2025','P2000']) {
++  test(`Section 5: persistence ${code} returns safe HTTP status`, async () => {
++    nextError = new Prisma.PrismaClientKnownRequestError('secret token/password/customer payload', { code, clientVersion: 'test' });
++    const res = await request('/offers/id','PUT','admin',{ title: 'Sale' });
++    assert.equal(res.status, code === 'P2025' ? 404 : code === 'P2000' ? 400 : 409);
++    assert.equal((await res.text()).includes('secret'), false);
++  });
++}
++test('Section 5: Prisma validation errors return 400 without raw request data', async () => {
++  nextError = new Prisma.PrismaClientValidationError('private customer values', { clientVersion: 'test' });
++  const res = await request('/offers/id','PUT','admin',{ title: 'Sale' });
++  assert.equal(res.status, 400); assert.equal((await res.text()).includes('private'), false);
++});
++
++test('T01/T02: real SessionService rejects missing, unknown, expired, revoked tokens and database failure over HTTP', async () => {
++  for (const token of [null, 'unknown', 'expired', 'revoked']) assert.equal((await request('/session/active','GET',token)).status, 401);
++  lookupError = true;
++  assert.equal((await request('/session/active','GET','buyer')).status, 401);
++});
++test('SESS/T06: real service denies cross-user DELETE before any revocation; admin can revoke it', async () => {
++  assert.equal((await request('/session/other-session','DELETE','buyer',{})).status, 403);
++  assert.equal(revokeWrites, 0); assert.equal(rows.find(r => r.token === 'other').isValid, true);
++  assert.equal((await request('/session/missing','DELETE','buyer',{})).status, 404);
++  const response = await request('/session/other-session','DELETE','admin',{});
++  assert.equal(response.status, 200); assert.equal(revokeWrites, 1);
++  assert.equal('token' in (await response.json()).data, false);
++});
++test('SESS: real revoke-others derives identity, retains current session, leaves other users unchanged', async () => {
++  assert.equal((await request('/session/revoke-others','POST','buyer',{ userId: 'other', currentToken: 'other' })).status, 403);
++  assert.equal(revokeWrites, 0);
++  assert.equal((await request('/session/revoke-others','POST','buyer',{})).status, 201);
++  assert.equal(rows.find(r => r.token === 'buyer').isValid, true);
++  assert.equal(rows.find(r => r.token === 'buyer-second').isValid, false);
++  assert.equal(rows.find(r => r.token === 'other').isValid, true);
++});
++test('SESS: real revoke-all requires admin for another user and does not revoke the acting admin', async () => {
++  assert.equal((await request('/session/revoke-all','POST','buyer',{ userId: 'other' })).status, 403);
++  assert.equal(revokeWrites, 0);
++  assert.equal((await request('/session/revoke-all','POST','admin',{ userId: 'other' })).status, 201);
++  assert.equal(rows.find(r => r.token === 'admin').isValid, true);
++  assert.equal(rows.find(r => r.token === 'other').isValid, false);
++});
++test('T12: real login, JWT issuance, persistent session, profile and logout flow over HTTP', async () => {
++  const response = await request('/auth/login','POST',null,{ email: buyer.email, password: 'test-password' });
++  assert.equal(response.status, 201);
++  const { accessToken } = await response.json();
++  assert.equal(accessToken.split('.').length, 3);
++  assert(rows.some(r => r.token === accessToken));
++  assert.equal((await request('/auth/profile','GET',accessToken)).status, 200);
++  assert.equal((await request('/auth/logout','POST',accessToken,{})).status, 201);
++  assert.equal((await request('/auth/profile','GET',accessToken)).status, 401);
++});
++
++test('Sensitive logging: upload success and provider failure never log filename/URL/error payload', async () => {
++  const { UploadService } = require('../src/upload/upload.service');
++  const service = Object.create(UploadService.prototype);
++  const logs = [];
++  service.logger = { log: (...v) => logs.push(v), warn: (...v) => logs.push(v), error: (...v) => logs.push(v) };
++  service.bucketName = 'test'; service.s3Client = { send: async () => ({}) };
++  service.getPublicUrl = () => ({ url: 'https://example.test/private-invoice', isCloudFront: true });
++  await service.uploadBuffer(Buffer.from('test'), 'private-customer-invoice.pdf', 'application/pdf', 'Bill');
++  service.s3Client.send = async () => { throw new Error('private-secret-token'); };
++  await service.ensureS3Folders();
++  assert.equal(JSON.stringify(logs).includes('private'), false);
++});
++test('Sensitive logging: CMS errors and cache prefixes are not echoed', async () => {
++  const fs = require('node:fs');
++  const { CmsService } = require('../src/cms/cms.service');
++  const { CustomCacheService } = require('../src/cache/custom-cache.service');
++  const logs = [];
++  const originalWrite = fs.writeFileSync, originalRead = fs.readFileSync, originalExists = fs.existsSync, originalError = console.error;
++  try {
++    console.error = (...v) => logs.push(v);
++    fs.existsSync = () => true;
++    fs.readFileSync = () => { throw new Error('private-customer-data'); };
++    fs.writeFileSync = () => { throw new Error('private-path'); };
++    const cms = Object.create(CmsService.prototype);
++    cms.defaultBanners = []; cms.defaultPages = []; cms.defaultAnnouncement = {};
++    cms.loadData(); cms.saveData();
++  } finally { fs.writeFileSync = originalWrite; fs.readFileSync = originalRead; fs.existsSync = originalExists; console.error = originalError; }
++  const cache = new CustomCacheService(); cache.logger = { log: (...v) => logs.push(v) };
++  await cache.invalidatePrefix('private-access-token');
++  assert.equal(JSON.stringify(logs).includes('private'), false);
++});
++test('Sensitive logging: existing Prisma startup error is sanitized without executing SQL', async () => {
++  const { PrismaService } = require('../src/prisma/prisma.service');
++  const logs = [];
++  const service = Object.create(PrismaService.prototype);
++  service.logger = { error: (...v) => logs.push(v), log: () => {} };
++  service.$executeRawUnsafe = async () => { throw new Error('private-database-secret'); };
++  await assert.rejects(service.ensureSchema());
++  assert.equal(JSON.stringify(logs).includes('private'), false);
++});
++
++test('Section 5: duplicate coupon/customer conflicts are 409 and do not write', async () => {
++  const { CouponsService } = require('../src/coupons/coupons.service');
++  const { CrmService } = require('../src/crm/crm.service');
++  const coupon = new CouponsService({ coupon: { findUnique: async () => ({ id: 'exists' }), create: () => assert.fail('duplicate write') } });
++  const crm = new CrmService({ customer: { findUnique: async () => ({ id: 'exists' }), create: () => assert.fail('duplicate write') } }, {});
++  await assert.rejects(coupon.create({ code: 'TEST', value: 5 }), status(409));
++  await assert.rejects(crm.create({ name: 'Buyer', phone: '123' }), status(409));
++});
++test('Section 5: authorization exceptions are never converted to success or persistence errors', async () => {
++  const { ForbiddenException } = require('@nestjs/common');
++  nextError = new ForbiddenException('Denied');
++  assert.equal((await request('/offers/id','PUT','admin',{ title: 'Sale' })).status, 403);
++});
++test('CAT07: transformed announcement metadata leaves existing record identity intact', async () => {
++  const { CmsService } = require('../src/cms/cms.service');
++  const cms = Object.create(CmsService.prototype);
++  cms.announcement = { id: 'announcement-1', text: 'Old', isActive: true };
++  cms.saveData = () => {}; // No filesystem persistence in tests.
++  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
++  const body = await pipe.transform({ id: 'forged', updatedAt: 'old', text: 'New', isActive: false }, { type: 'body', metatype: dto.AnnouncementDto });
++  const updated = await cms.updateAnnouncement(body);
++  assert.equal(updated.id, 'announcement-1'); assert.equal(updated.text, 'New'); assert.equal(updated.isActive, false);
++  assert.notEqual(updated.updatedAt, 'old');
++});
+diff --git a/test/security.test.cjs b/test/security.test.cjs
+new file mode 100644
+index 00000000..47e9d4b9
+--- /dev/null
++++ b/test/security.test.cjs
+@@ -0,0 +1,358 @@
++require('reflect-metadata');
++const { test, before, after } = require('node:test');
++const assert = require('node:assert/strict');
++const { Module, ValidationPipe } = require('@nestjs/common');
++const { NestFactory, Reflector } = require('@nestjs/core');
++const { SessionAuthGuard } = require('../src/auth/guards/session-auth.guard');
++const { RolesGuard } = require('../src/auth/guards/roles.guard');
++const { SessionService } = require('../src/session/session.service');
++const { SessionController } = require('../src/session/session.controller');
++const { AuthService } = require('../src/auth/auth.service');
++const { AuthController } = require('../src/auth/auth.controller');
++const { ProductsService } = require('../src/products/products.service');
++const { ProductsController } = require('../src/products/products.controller');
++const { CategoriesService } = require('../src/categories/categories.service');
++const { BrandsService } = require('../src/brands/brands.service');
++const { CustomCacheService } = require('../src/cache/custom-cache.service');
++const { PrivilegeFieldsPipe } = require('../src/auth/privilege-fields.pipe');
++const bcrypt = require('bcryptjs');
++const ctx = (authorization) => ({ switchToHttp: () => ({ getRequest: () => ({ headers: { authorization } }) }) });
++const status = n => err => err.getStatus?.() === n;
++const user = { id: 'customer-1', role: 'CUSTOMER', email: 'customer@example.test' };
++const admin = { id: 'admin-1', role: 'ADMIN', email: 'admin@example.test' };
++const session = actor => ({ id: actor.id + '-session', userId: actor.id, user: actor, token: actor.role.toLowerCase(), isValid: true, expiresAt: new Date(Date.now() + 60000) });
++
++for (const header of [undefined, '', 'Bearer', 'Bearer ', 'Bearer  abc', 'Bearer abc ', 'Bearer abc extra', 'Basic abc', ['Bearer abc'], 'Bearer\tabc']) {
++  test(`AUTH malformed header ${JSON.stringify(header)} fails before database lookup`, async () => {
++    const guard = new SessionAuthGuard({ validateSession: () => assert.fail('must not validate malformed input') });
++    await assert.rejects(guard.canActivate(ctx(header)), status(401));
++  });
++}
++for (const outcome of [null, { ...session(user), isValid: false }, { ...session(user), expiresAt: new Date(0) }, new Error('database unavailable')]) {
++  test(`AUTH invalid/revoked/expired/database failure fails closed: ${outcome?.message || outcome?.isValid}`, async () => {
++    const guard = new SessionAuthGuard({ validateSession: async () => { if (outcome instanceof Error) throw outcome; return outcome; } });
++    await assert.rejects(guard.canActivate(ctx('Bearer token')), status(401));
++  });
++}
++for (const state of ['unknown', 'revoked', 'expired', 'valid']) {
++  test(`SessionService validates stored ${state} sessions`, async () => {
++    const row = state === 'unknown' ? null : { ...session(user), isValid: state !== 'revoked', expiresAt: state === 'expired' ? new Date(0) : new Date(Date.now() + 60000) };
++    const service = new SessionService({ session: { findUnique: async () => row, update: async () => ({}) } });
++    assert.equal(Boolean(await service.validateSession('opaque-token')), state === 'valid');
++  });
++}
++
++function matches(row, where = {}) {
++  return Object.entries(where).every(([key, value]) => {
++    if (value === undefined) return true;
++    if (key === 'AND') return value.every(w => matches(row, w));
++    if (key === 'OR') return value.some(w => matches(row, w));
++    if (key === 'NOT') return !matches(row, value);
++    if (value && typeof value === 'object') {
++      if ('equals' in value) return String(row[key]).toLowerCase() === String(value.equals).toLowerCase();
++      if ('in' in value) return value.in.some(v => String(v).toLowerCase() === String(row[key]).toLowerCase());
++      if ('contains' in value) return String(row[key]).toLowerCase().includes(value.contains.toLowerCase());
++      return row[key] != null && matches(row[key], value);
++    }
++    return row[key] === value;
++  });
++}
++function catalogueFixture() {
++  const rows = {
++    product: [{ id: 'p1', slug: 'shirt', sku: 'SKU1', name: 'Shirt', category: 'shirts', brand: 'Mill', brandId: 'mill', categoryId: 'c1', brandRefId: 'b1', isActive: true }],
++    category: [{ id: 'c1', name: 'Shirts', slug: 'shirts', isActive: true }],
++    brand: [{ id: 'b1', name: 'Mill', slug: 'mill', isActive: true }],
++  };
++  const db = {};
++  const expand = (model, row) => model === 'product' ? { ...row, categoryRef: rows.category.find(c => c.id === row.categoryId) || null, brandRef: rows.brand.find(b => b.id === row.brandRefId) || null } : row;
++  let deleted = false;
++  for (const model of Object.keys(rows)) {
++    db[model] = {
++      findUnique: async ({ where }) => rows[model].find(r => matches(r, where)) || null,
++      findFirst: async ({ where }) => rows[model].map(r => expand(model, r)).find(r => matches(r, where)) || null,
++      findMany: async ({ where } = {}) => rows[model].map(r => expand(model, r)).filter(r => matches(r, where)),
++      count: async ({ where }) => rows[model].map(r => expand(model, r)).filter(r => matches(r, where)).length,
++      update: async ({ where, data }) => { const row = rows[model].find(r => matches(r, where)); Object.assign(row, data); return { ...row }; },
++      create: async ({ data }) => { const row = { id: 'new', isActive: true, ...data }; rows[model].push(row); return row; },
++      delete: async () => { deleted = true; assert.fail('Hard deletion is forbidden'); },
++    };
++  }
++  db.$transaction = async (fn, opts) => { assert.equal(opts.isolationLevel, 'Serializable'); return fn(db); };
++  const cache = new CustomCacheService();
++  return { rows, db, cache, products: new ProductsService(db, cache), categories: new CategoriesService(db, cache), brands: new BrandsService(db, cache), wasDeleted: () => deleted };
++}
++
++test('T07-T11 product archive/restore hides all aliases, clears caches, preserves record', async () => {
++  const f = catalogueFixture();
++  for (const key of ['products:p1', 'products:shirt', 'products:SKU1', 'categories:list', 'brands:list']) await f.cache.set(key, { stale: true });
++  await f.products.remove('p1');
++  assert.equal(f.rows.product.length, 1);
++  assert.equal(f.rows.product[0].isActive, false);
++  assert.equal(f.wasDeleted(), false);
++  for (const key of ['products:p1', 'products:shirt', 'products:SKU1', 'categories:list', 'brands:list']) assert.equal(await f.cache.get(key), null);
++  for (const id of ['p1', 'shirt', 'SKU1']) await assert.rejects(f.products.findOne(id), status(404));
++  assert.equal((await f.products.findAll({ search: 'Shirt' })).total, 0);
++  assert.equal((await f.products.findAll({ isActive: false }, true)).total, 1);
++  await f.products.restore('p1');
++  assert.equal((await f.products.findOne('shirt')).isActive, true);
++  assert.equal((await f.products.findAll({})).total, 1);
++});
++for (const name of ['categories', 'brands']) {
++  test(`T10 ${name} rejects archive and PUT bypass with active dependencies`, async () => {
++    const f = catalogueFixture(), id = name === 'categories' ? 'c1' : 'b1';
++    await f.cache.set('products:p1', 'unchanged');
++    await assert.rejects(f[name].remove(id), status(409));
++    await assert.rejects(f[name].update(id, { isActive: false }), status(409));
++    assert.equal(await f.cache.get('products:p1'), 'unchanged');
++    await f.products.remove('p1');
++    await f[name].remove(id);
++    await assert.rejects(f[name].findOne(id), status(404));
++    assert.equal((await f[name].findAll()).length, 0);
++    assert.equal((await f[name].findAll(true, false)).length, 1);
++    await assert.rejects(f.products.restore('p1'), status(409));
++    await f[name].restore(id);
++    await f.products.restore('p1');
++    assert.equal((await f.products.findOne('p1')).isActive, true);
++  });
++}
++test('Inactive relations hide products and filtered counts use public visibility', async () => {
++  const f = catalogueFixture(); f.rows.category[0].isActive = false;
++  assert.equal((await f.products.findAll({})).total, 0);
++  await assert.rejects(f.products.findOne('p1'), status(404));
++  let query;
++  f.db.brand.findMany = async args => { query = args; return []; };
++  await f.products.getBrands();
++  assert.equal(query.where.isActive, true);
++  assert.equal(query.include._count.select.products.where.AND[0].isActive, true);
++});
++test('Failed transaction never invalidates cache; conflicts are 409', async () => {
++  const f = catalogueFixture(); await f.cache.set('products:p1', 'keep');
++  f.db.$transaction = async () => { throw { code: 'P2034' }; };
++  await assert.rejects(f.products.remove('p1'), status(409));
++  assert.equal(await f.cache.get('products:p1'), 'keep');
++});
++test('Catalogue rejects nested Prisma writes, invalid active flags, missing restore IDs', async () => {
++  const f = catalogueFixture();
++  for (const body of [{ categoryRef: { delete: true } }, { isActive: 'false' }, { role: 'ADMIN' }, { stock: -1 }]) await assert.rejects(f.products.update('p1', body), status(400));
++  await assert.rejects(f.products.restore('missing'), status(404));
++  await assert.rejects(f.categories.restore('missing'), status(404));
++  await assert.rejects(f.brands.restore('missing'), status(404));
++});
++
++test('T05 service ignores ADMIN role; T12 legitimate login creates session', async () => {
++  let saved, createdSession;
++  const prisma = { user: {
++    findUnique: async () => null,
++    create: async ({ data }) => { saved = { id: 'new-user', ...data }; return saved; },
++  } };
++  const service = new AuthService(prisma, { sign: () => 'signed-token' }, { createSession: async args => { createdSession = args; return { id: 's1' }; } });
++  const registered = await service.register({ email: 'new@example.test', password: 'valid-password', name: 'Buyer', role: 'ADMIN' });
++  assert.equal(saved.role, 'CUSTOMER'); assert.equal(registered.user.role, 'CUSTOMER');
++  assert.notEqual(saved.passwordHash, 'valid-password');
++  prisma.user.findUnique = async () => saved;
++  const login = await service.login(' NEW@example.test ', 'valid-password', {});
++  assert.equal(login.accessToken, 'signed-token'); assert.equal(createdSession.userId, saved.id);
++  await assert.rejects(service.login('new@example.test', 'wrong', {}), status(401));
++});
++test('Session ownership checks prevent revoking another user before mutation', async () => {
++  const service = new SessionService({ session: { findUnique: async () => ({ userId: 'other' }), update: () => assert.fail('unauthorized write') } });
++  await assert.rejects(service.revokeSession('other-session', 'test', user), status(403));
++});
++test('Session stats and audit history apply user scope in every query', async () => {
++  const queries = [];
++  const service = new SessionService({ session: { count: async q => { queries.push(q); return 1; }, groupBy: async q => { queries.push(q); return []; }, findMany: async q => { queries.push(q); return []; } } });
++  await service.getSessionStats(user.id); await service.getAllSessions(user.id);
++  assert.equal(queries.length, 5); queries.forEach(q => assert.equal(q.where.userId, user.id));
++});
++
++let app, base, httpFixture, scopes = [], mutations = 0;
++before(async () => {
++  httpFixture = catalogueFixture();
++  const sessionService = {
++    validateSession: async token => token === 'admin' ? session(admin) : token === 'customer' ? session(user) : null,
++    getActiveSessions: async id => { scopes.push(id); return [session(user)]; },
++    getAllSessions: async id => { scopes.push(id); return [session(user)]; },
++    getSessionStats: async id => { scopes.push(id); return { activeSessions: 1 }; },
++    revokeOtherSessions: async (id, token) => { scopes.push([id, token]); return { count: 1 }; },
++    revokeAllUserSessions: async id => { scopes.push(id); return { count: 1 }; },
++    revokeSession: async () => ({ ...session(user), isValid: false }),
++  };
++  const { SettingsController } = require('../src/settings/settings.controller');
++  const { SettingsService } = require('../src/settings/settings.service');
++  class TestModule {}
++  Module({ controllers: [ProductsController, SessionController, AuthController, SettingsController], providers: [
++    SessionAuthGuard, RolesGuard,
++    { provide: SessionService, useValue: sessionService },
++    { provide: ProductsService, useValue: httpFixture.products },
++    { provide: AuthService, useValue: { register: () => { mutations++; return { ok: true }; } } },
++    { provide: SettingsService, useValue: { updateSettings: () => { mutations++; return { ok: true }; }, getSettings: () => ({}) } },
++  ] })(TestModule);
++  app = await NestFactory.create(TestModule, { logger: false });
++  app.setGlobalPrefix('api');
++  app.useGlobalPipes(new PrivilegeFieldsPipe(), new ValidationPipe({ transform: true }));
++  await app.listen(0, '127.0.0.1'); base = await app.getUrl();
++});
++after(async () => { await app?.close(); });
++async function request(path, method = 'GET', token, body) {
++  const headers = { 'Content-Type': 'application/json' };
++  if (token) headers.Authorization = `Bearer ${token}`;
++  return fetch(`${base}/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
++}
++test('T01-T04 HTTP guard order: 401/403 never mutates; ADMIN succeeds', async () => {
++  mutations = 0;
++  assert.equal((await request('/settings', 'PUT', undefined, {})).status, 401);
++  assert.equal((await request('/settings', 'PUT', 'invalid', {})).status, 401);
++  assert.equal((await request('/settings', 'PUT', 'customer', {})).status, 403);
++  assert.equal(mutations, 0);
++  assert.equal((await request('/settings', 'PUT', 'admin', {})).status, 200);
++  assert.equal(mutations, 1);
++});
++test('T05 HTTP registration rejects privilege input before service execution', async () => {
++  const beforeCount = mutations;
++  const res = await request('/auth/register', 'POST', undefined, { name: 'Buyer', email: 'buyer@example.test', password: 'valid-password', role: 'ADMIN' });
++  assert.equal(res.status, 400); assert.equal(mutations, beforeCount);
++});
++test('T06 HTTP session endpoints require authentication and scope customer requests', async () => {
++  for (const route of ['active', 'all', 'stats']) {
++    assert.equal((await request(`/session/${route}`)).status, 401);
++    assert.equal((await request(`/session/${route}?userId=other`, 'GET', 'customer')).status, 403);
++    const res = await request(`/session/${route}`, 'GET', 'customer');
++    assert.equal(res.status, 200); assert.equal(scopes.at(-1), user.id);
++    assert.equal(JSON.stringify(await res.json()).includes('"token"'), false);
++  }
++  assert.equal((await request('/session/active?userId=other', 'GET', 'admin')).status, 200);
++  assert.equal(scopes.at(-1), 'other');
++  assert.equal((await request('/session/revoke-others', 'POST', 'customer', { userId: 'other', currentToken: 'forged' })).status, 403);
++  assert.equal((await request('/session/revoke-others', 'POST', 'customer', {})).status, 201);
++  assert.deepEqual(scopes.at(-1), [user.id, 'customer']);
++  assert.equal((await request('/session/revoke-all', 'POST', 'customer', { userId: 'other' })).status, 403);
++  assert.equal((await request('/session/revoke-all', 'POST', 'customer', {})).status, 201);
++  assert.equal(scopes.at(-1), user.id);
++});
++test('T07-T09 HTTP catalogue archive/admin visibility/restore lifecycle', async () => {
++  assert.equal((await request('/products/p1', 'DELETE', 'customer')).status, 403);
++  assert.equal((await request('/products/p1', 'DELETE', 'admin')).status, 200);
++  assert.equal((await request('/products/p1')).status, 404);
++  assert.equal((await request('/products/admin?isActive=false', 'GET', 'customer')).status, 403);
++  const res = await request('/products/admin?isActive=false', 'GET', 'admin');
++  assert.equal(res.status, 200); assert.equal((await res.json()).total, 1);
++  assert.equal((await request('/products/p1/restore', 'POST', 'admin')).status, 201);
++  assert.equal((await request('/products/p1')).status, 200);
++});
++
++// Inspect real route metadata to cover every administrative controller, not a test-only guard.
++test('Administrative route inventory attaches authentication before role authorization', () => {
++  const modules = ['products','categories','brands','coupons','offers','cms','settings','orders','inventory','crm','analytics','cache','upload'];
++  const fullAdmin = new Set(['inventory','crm','analytics','cache','upload']);
++  const publicPosts = new Set(['orders:create', 'orders:createRazorpayOrder', 'orders:verifyRazorpayPayment', 'coupons:validate']);
++  let checked = 0;
++  for (const name of modules) {
++    const exports = require(`../src/${name}/${name}.controller`);
++    const Controller = Object.values(exports).find(v => typeof v === 'function' && v.name.endsWith('Controller'));
++    for (const key of Object.getOwnPropertyNames(Controller.prototype)) {
++      const fn = Controller.prototype[key];
++      const method = Reflect.getMetadata('method', fn);
++      if (method === undefined) continue;
++      const path = Reflect.getMetadata('path', fn);
++      const administrative = fullAdmin.has(name) || String(path).startsWith('admin') || (method !== 0 && !publicPosts.has(`${name}:${key}`)) || (name === 'coupons' && method === 0);
++      if (!administrative) continue;
++      const guards = [...(Reflect.getMetadata('__guards__', Controller) || []), ...(Reflect.getMetadata('__guards__', fn) || [])];
++      const roles = Reflect.getMetadata('roles', fn) || Reflect.getMetadata('roles', Controller);
++      assert(guards.some(g => ['SessionAuthGuard','JwtAuthGuard'].includes(g.name)), `${name}.${key} authentication`);
++      assert(guards.includes(RolesGuard), `${name}.${key} authorization`);
++      assert(guards.findIndex(g => ['SessionAuthGuard','JwtAuthGuard'].includes(g.name)) < guards.indexOf(RolesGuard));
++      assert.deepEqual(roles, ['ADMIN'], `${name}.${key} roles`);
++      checked++;
++    }
++  }
++  assert(checked >= 50);
++});
++
++test('Legacy text-only catalogue relationships cannot bypass archive or restore checks', async () => {
++  const f = catalogueFixture();
++  f.rows.product[0].categoryId = null; f.rows.product[0].brandRefId = null;
++  await assert.rejects(f.categories.remove('c1'), status(409));
++  await assert.rejects(f.brands.remove('b1'), status(409));
++  f.rows.category[0].isActive = false;
++  assert.equal((await f.products.findAll({})).total, 0);
++  await assert.rejects(f.products.restore('p1'), status(409));
++  f.rows.category[0].isActive = true; f.rows.brand[0].isActive = false;
++  assert.equal((await f.products.findAll({})).total, 0);
++  await assert.rejects(f.products.restore('p1'), status(409));
++});
++test('Create and reassign cannot attach active products to archived dependencies', async () => {
++  const f = catalogueFixture(); f.rows.category[0].isActive = false;
++  await assert.rejects(f.products.create({ name: 'New', category: 'shirts', categoryId: 'c1', price: 10, mrp: 20 }), status(409));
++  await assert.rejects(f.products.update('p1', { categoryId: 'c1' }), status(409));
++  await f.products.remove('p1');
++  await f.products.update('p1', { name: 'Archived item' });
++  assert.equal(f.rows.product[0].name, 'Archived item');
++});
++test('Orders scope list/detail/invoice to authenticated email and redact nested admin records', async () => {
++  const { OrdersService } = require('../src/orders/orders.service');
++  let listQuery;
++  const row = { id: 'order1', customerEmail: user.email, customer: { creditLimit: 500 }, razorpaySignature: 'secret', paymentNotes: 'private', items: [{ productName: 'Snapshot', product: { id: 'archived', isActive: false } }] };
++  const service = new OrdersService({ order: {
++    findFirst: async () => row,
++    count: async () => 1,
++    findMany: async q => { listQuery = q; return [row]; },
++  } }, {}, { getSettings: async () => ({}) });
++  await assert.rejects(service.findAll({ customerEmail: 'other@example.test' }, user), status(403));
++  const result = await service.findAll({ customerPhone: 'someone-else' }, user);
++  assert.equal(listQuery.where.AND[0].customerEmail.equals, user.email);
++  assert.equal(result.orders[0].customer, undefined);
++  assert.equal(result.orders[0].razorpaySignature, undefined);
++  assert.equal(result.orders[0].items[0].product, null);
++  assert.equal((await service.getInvoiceData('order1', user)).order.id, 'order1');
++  await assert.rejects(service.findOne('order1', { ...user, email: 'other@example.test' }), status(403));
++  assert.equal((await service.findOne('order1', admin)).customer.creditLimit, 500);
++});
++test('Checkout DTO rejects paid status and nested privilege injection while accepting current storefront payload', async () => {
++  const { CreateOrderDto } = require('../src/orders/order.dto');
++  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
++  const body = { customerName: 'Buyer', customerPhone: '1234567890', customerEmail: user.email, shippingAddress: 'Test address', paymentMethod: 'PAY_AFTER_CONTACT', paymentStatus: 'UNPAID', items: [{ productId: 'p1', productName: 'Shirt', quantity: 1, unitPrice: 3000 }] };
++  const meta = { type: 'body', metatype: CreateOrderDto };
++  assert.equal((await pipe.transform(body, meta)).paymentStatus, 'UNPAID');
++  await assert.rejects(pipe.transform({ ...body, paymentStatus: 'PAID' }, meta), status(400));
++  await assert.rejects(pipe.transform({ ...body, customerId: 'other' }, meta), status(400));
++  await assert.rejects(pipe.transform({ ...body, items: [{ ...body.items[0], quantity: -1 }] }, meta), status(400));
++  assert.throws(() => new PrivilegeFieldsPipe().transform({ nested: { role: 'ADMIN' } }, meta), status(400));
++});
++test('CMS public reads hide drafts; admin reads retain visibility without touching CMS file', async () => {
++  const { CmsService } = require('../src/cms/cms.service');
++  const cms = Object.create(CmsService.prototype); // Avoid constructor file IO.
++  cms.banners = [{ id: 'hidden', isActive: false }, { id: 'visible', isActive: true }];
++  cms.pages = [{ id: 'draft', slug: 'draft', isPublished: false }, { id: 'live', slug: 'live', isPublished: true }];
++  cms.announcement = { isActive: false };
++  assert.equal((await cms.getAllBanners()).length, 1);
++  assert.equal((await cms.getAllBanners(true)).length, 2);
++  await assert.rejects(cms.getBanner('hidden'), status(404));
++  assert.equal((await cms.getAllPages()).length, 1);
++  await assert.rejects(cms.getPageBySlug('draft'), status(404));
++  assert.equal((await cms.getAllPages(true)).length, 2);
++  assert.equal(await cms.getAnnouncement(), null);
++});
++test('Offers public isActive query cannot reveal inactive records; admin can view them', async () => {
++  const { OffersService } = require('../src/offers/offers.service');
++  let query;
++  const service = new OffersService({ offer: { findMany: async q => { query = q; return []; }, findFirst: async q => { query = q; return null; } } });
++  await service.findAll({ isActive: 'false' }); assert.equal(query.where.isActive, true);
++  await service.findAll({ isActive: 'false' }, true); assert.equal(query.where.isActive, false);
++  await assert.rejects(service.findOne('hidden'), status(404)); assert.equal(query.where.isActive, true);
++});
++
++test('Logout revokes the authenticated session and does not reparse header casing', async () => {
++  let token;
++  const controller = new AuthController({ logout: async value => { token = value; return { success: true }; } });
++  assert.equal((await controller.logout({ session: { token: 'current-token' }, headers: { authorization: 'bearer current-token' } })).success, true);
++  assert.equal(token, 'current-token');
++});
++
++test('Administrative order DTOs reject invalid enums, dates and unexpected fields', async () => {
++  const { UpdateOrderStatusDto, UpdatePaymentDto } = require('../src/orders/order.dto');
++  const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
++  await assert.rejects(pipe.transform({ status: 'INVALID' }, { type: 'body', metatype: UpdateOrderStatusDto }), status(400));
++  await assert.rejects(pipe.transform({ status: 'DISPATCHED', dispatchedAt: 'yesterday' }, { type: 'body', metatype: UpdateOrderStatusDto }), status(400));
++  await assert.rejects(pipe.transform({ paymentStatus: 'PAID', userId: 'forged' }, { type: 'body', metatype: UpdatePaymentDto }), status(400));
++  assert.equal((await pipe.transform({ paymentStatus: 'PAID' }, { type: 'body', metatype: UpdatePaymentDto })).paymentStatus, 'PAID');
++});
