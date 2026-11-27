@@ -26,6 +26,13 @@ export class ProductsController {
     @Query('stockStatus') stockStatus?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
+    @Query('sort') sort?: string,
+    @Query('brandIds') brandIds?: string,
+    @Query('categoryIds') categoryIds?: string,
+    @Query('minRating') minRating?: number,
+    @Query('minDiscount') minDiscount?: number,
+    @Query('dealsOnly') dealsOnly?: string,
+    @Query('includeFacets') includeFacets?: string,
   ) {
     const result = await this.productsService.findAll({
       category,
@@ -38,6 +45,7 @@ export class ProductsController {
       stockStatus,
       page,
       limit,
+      sort, brandIds, categoryIds, minRating, minDiscount, dealsOnly, includeFacets,
     });
     return {
       success: true,
@@ -46,6 +54,7 @@ export class ProductsController {
       page: result.page,
       limit: result.limit,
       totalPages: result.totalPages,
+      maxPrice: result.maxPrice,
     };
   }
 

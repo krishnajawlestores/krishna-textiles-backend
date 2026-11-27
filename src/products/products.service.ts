@@ -23,13 +23,28 @@ export class ProductsService {
     stockStatus?: string;
     page?: number;
     limit?: number;
+    sort?: string;
+    brandIds?: string;
+    categoryIds?: string;
+    minRating?: number;
+    minDiscount?: number;
+    dealsOnly?: string;
+    includeFacets?: string;
   }, admin = false) {
     for (const key of ['category', 'brandId', 'categoryId', 'brandRefId', 'search', 'stockStatus']) {
       if (params[key] !== undefined && typeof params[key] !== 'string') throw new BadRequestException(`${key} must be a string.`);
     }
-    for (const key of ['minPrice', 'maxPrice']) {
+    for (const key of ['minPrice', 'maxPrice', 'minRating', 'minDiscount']) {
       if (params[key] !== undefined && (!Number.isFinite(Number(params[key])) || Number(params[key]) < 0)) throw new BadRequestException(`${key} must be a non-negative number.`);
     }
+    for (const key of ['brandIds', 'categoryIds']) {
+      if (params[key] !== undefined && (typeof params[key] !== 'string' || params[key].length > 4000 || params[key].split(',').length > 100)) throw new BadRequestException(`Invalid ${key}.`);
+    }
+    for (const key of ['dealsOnly', 'includeFacets']) {
+      if (params[key] !== undefined && !['true', 'false'].includes(params[key])) throw new BadRequestException(`Invalid ${key}.`);
+    }
+    const sorting = { popular: { reviews: 'desc' }, 'price-low': { price: 'asc' }, 'price-high': { price: 'desc' }, rating: { rating: 'desc' }, discount: { discount: 'desc' }, newest: { createdAt: 'desc' } };
+    if (params.sort !== undefined && !Object.prototype.hasOwnProperty.call(sorting, params.sort)) throw new BadRequestException('Invalid sort option.');
     const page = params.page ? Number(params.page) : 1;
     const limit = params.limit ? Number(params.limit) : 50;
     if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new BadRequestException('Invalid pagination (limit 1-200).');
@@ -85,14 +100,33 @@ export class ProductsService {
         ],
       });
     }
-    if (params.minPrice || params.maxPrice) {
+    const facetWhere = { AND: [...andConditions] };
+    for (const [key, relation, legacy] of [['brandIds', 'brandRef', 'brand'], ['categoryIds', 'categoryRef', 'category']]) {
+      if (params[key]) {
+        const ids = params[key].split(',').filter(Boolean);
+        const records = key === 'brandIds'
+          ? await this.prisma.brand.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, name: true } })
+          : await this.prisma.category.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, name: true } });
+        andConditions.push({ OR: [
+          { [relation]: { id: { in: ids } } },
+          { [legacy]: { in: records.flatMap(r => [r.id, r.slug, r.name]), mode: 'insensitive' } },
+          ...(key === 'brandIds' ? [{ brandId: { in: records.flatMap(r => [r.id, r.slug]) } }] : []),
+        ] });
+      }
+    }
+    if (params.minRating !== undefined) andConditions.push({ rating: { gte: Number(params.minRating) } });
+    if (params.minDiscount !== undefined) andConditions.push({ discount: { gte: Number(params.minDiscount) } });
+    if (params.dealsOnly === 'true') andConditions.push({ OR: [{ discount: { gt: 0 } }, { mrp: { gt: this.prisma.product.fields.price } }] });
+    if (params.minPrice !== undefined || params.maxPrice !== undefined) {
       const priceFilter: any = {};
-      if (params.minPrice) priceFilter.gte = Number(params.minPrice);
-      if (params.maxPrice) priceFilter.lte = Number(params.maxPrice);
+      if (params.minPrice !== undefined) priceFilter.gte = Number(params.minPrice);
+      if (params.maxPrice !== undefined) priceFilter.lte = Number(params.maxPrice);
       andConditions.push({ price: priceFilter });
     }
     if (params.stockStatus && params.stockStatus !== 'all') {
-      if (params.stockStatus === 'low' || params.stockStatus === 'low_stock') {
+      if (params.stockStatus === 'in') {
+        andConditions.push({ stock: { gt: 0 } });
+      } else if (params.stockStatus === 'low' || params.stockStatus === 'low_stock') {
         andConditions.push({ stock: { gt: 0, lt: 20 } });
       } else if (params.stockStatus === 'medium' || params.stockStatus === 'medium_stock') {
         andConditions.push({ stock: { equals: 20 } });
@@ -113,7 +147,7 @@ export class ProductsService {
           categoryRef: true,
           brandRef: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [sorting[params.sort || 'newest'], { id: 'asc' }],
         skip,
         take: limit,
       }),
@@ -121,6 +155,7 @@ export class ProductsService {
 
     return {
       products,
+      maxPrice: params.includeFacets === 'true' ? (await this.prisma.product.aggregate({ where: facetWhere, _max: { price: true } }))._max.price || 0 : undefined,
       total,
       page,
       limit,
