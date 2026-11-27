@@ -266,6 +266,20 @@ Whether you are a retail customer seeking sizing assistance or a boutique retail
     }
   }
 
+  // Persist the entire activation batch before changing the in-memory store.
+  async activateInactiveRecords(rows: { kind: string; sourceId: string }[]) {
+    const selected = new Set(rows.map(row => `${row.kind}:${row.sourceId}`));
+    const updatedAt = new Date().toISOString();
+    const banners = this.banners.map(b => selected.has(`banner:${b.id}`) ? { ...b, isActive: true, updatedAt } : b);
+    const pages = this.pages.map(p => selected.has(`page:${p.id}`) ? { ...p, isPublished: true, updatedAt } : p);
+    const announcement = selected.has(`announcement:${this.announcement.id}`) ? { ...this.announcement, isActive: true, updatedAt } : this.announcement;
+    fs.writeFileSync(this.dataFilePath, JSON.stringify({ banners, pages, announcement }, null, 2));
+    this.banners = banners;
+    this.pages = pages;
+    this.announcement = announcement;
+    return { count: rows.length };
+  }
+
   // --- BANNERS ---
   async getAllBanners(admin = false) {
     return this.banners.filter(b => admin || b.isActive).sort((a, b) => a.priority - b.priority);

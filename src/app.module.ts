@@ -16,6 +16,7 @@ import { OffersModule } from './offers/offers.module';
 import { CmsModule } from './cms/cms.module';
 import { UploadModule } from './upload/upload.module';
 import { SettingsModule } from './settings/settings.module';
+import { InactiveModule } from './inactive/inactive.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { SettingsModule } from './settings/settings.module';
     CmsModule,
     UploadModule,
     SettingsModule,
+    InactiveModule,
   ],
 })
 export class AppModule {}

@@ -198,6 +198,7 @@ model CustomerNote {
 }
 
 model Order {
+  isActive        Boolean             @default(true)
   id              String              @id @default(uuid())
   orderNumber     String              @unique
   customerId      String?
