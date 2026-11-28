@@ -12,6 +12,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   private async ensureSchema() {
     try {
+      await this.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "AdminActivity" (
+  "id" TEXT PRIMARY KEY,
+  "userId" TEXT NOT NULL,
+  "userName" TEXT NOT NULL,
+  "userEmail" TEXT NOT NULL,
+  "action" TEXT NOT NULL,
+  "path" TEXT NOT NULL,
+  "statusCode" INTEGER NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+)`);
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AdminActivity_createdAt_id_idx" ON "AdminActivity" ("createdAt", "id")`);
+      await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AdminActivity_userId_createdAt_idx" ON "AdminActivity" ("userId", "createdAt")`);
+
       // 1. Ensure sizeVariants column exists on Product table
       await this.$executeRawUnsafe(`
         ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "sizeVariants" JSONB DEFAULT '[]'::jsonb;

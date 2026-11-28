@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminSecurityModule } from './admin-security/admin-security.module';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { CustomCacheModule } from './cache/cache.module';
@@ -38,6 +39,7 @@ import { InactiveModule } from './inactive/inactive.module';
     UploadModule,
     SettingsModule,
     InactiveModule,
+    AdminSecurityModule,
   ],
 })
 export class AppModule {}

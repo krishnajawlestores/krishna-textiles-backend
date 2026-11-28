@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionService } from '../session/session.service';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -30,7 +31,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password.');
     }
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = { sub: user.id, email: user.email, role: user.role, jti: randomUUID() };
     const accessToken = this.jwtService.sign(payload);
 
     // Create persistent session
@@ -142,7 +143,7 @@ export class AuthService {
       }
     }
 
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const payload = { sub: user.id, email: user.email, role: user.role, jti: randomUUID() };
     const accessToken = this.jwtService.sign(payload);
 
     // Create persistent session

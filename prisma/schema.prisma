@@ -59,6 +59,20 @@ model User {
   sessions     Session[]
 }
 
+model AdminActivity {
+  id         String   @id @default(uuid())
+  userId     String
+  userName   String
+  userEmail  String
+  action     String
+  path       String
+  statusCode Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt, id])
+  @@index([userId, createdAt])
+}
+
 model Session {
   id            String   @id @default(uuid())
   userId        String
