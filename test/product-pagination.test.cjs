@@ -41,3 +41,13 @@ test('catalog rejects invalid pagination, sort and filter inputs', async () => {
     await assert.rejects(() => setup().service.findAll(params), e => e.getStatus() === 400);
   }
 });
+
+test('unselected rating and discount filters do not exclude catalog products', async () => {
+  for (const params of [{}, { minRating: 0, minDiscount: 0 }, { minRating: '0', minDiscount: '0' }]) {
+    const f = setup();
+    await f.service.findAll(params);
+    const and = f.query().where.AND;
+    assert.equal(and.some(x => x.rating || x.discount), false);
+    assert.deepEqual(f.query().where, f.countQuery().where);
+  }
+});

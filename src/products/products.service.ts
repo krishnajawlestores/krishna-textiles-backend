@@ -114,8 +114,8 @@ export class ProductsService {
         ] });
       }
     }
-    if (params.minRating !== undefined) andConditions.push({ rating: { gte: Number(params.minRating) } });
-    if (params.minDiscount !== undefined) andConditions.push({ discount: { gte: Number(params.minDiscount) } });
+    if (Number(params.minRating) > 0) andConditions.push({ rating: { gte: Number(params.minRating) } });
+    if (Number(params.minDiscount) > 0) andConditions.push({ discount: { gte: Number(params.minDiscount) } });
     if (params.dealsOnly === 'true') andConditions.push({ OR: [{ discount: { gt: 0 } }, { mrp: { gt: this.prisma.product.fields.price } }] });
     if (params.minPrice !== undefined || params.maxPrice !== undefined) {
       const priceFilter: any = {};
