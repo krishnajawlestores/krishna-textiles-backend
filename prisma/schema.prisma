@@ -65,6 +65,7 @@ model AdminActivity {
   userName   String
   userEmail  String
   action     String
+  description String?
   path       String
   statusCode Int
   createdAt  DateTime @default(now())

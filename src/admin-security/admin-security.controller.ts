@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Query, Req, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { SessionAuthGuard } from '../auth/guards/session-auth.guard';
 import { Roles, RolesGuard } from '../auth/guards/roles.guard';
 import { AdminSecurityService } from './admin-security.service';
@@ -10,8 +10,9 @@ export class SecurityQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 20;
   @IsOptional() @IsString() @MaxLength(100) userId?: string;
 }
-export class PageViewDto {
-  @IsString() @MaxLength(200) @Matches(/^\/[a-zA-Z0-9/_-]*$/) path: string;
+
+export class SessionQuery extends SecurityQuery {
+  @IsOptional() @IsIn(['all', 'active', 'invalid', 'expired']) status: string = 'all';
 }
 
 @Controller('admin-security')
@@ -23,8 +24,7 @@ export class AdminSecurityController {
 
   @Get('users') users() { return this.service.users(); }
   @Get('activity') activity(@Query() query: SecurityQuery) { return this.service.activity(query); }
-  @Post('page-view') pageView(@Body() body: PageViewDto) { return { success: true }; }
-  @Get('sessions') sessions(@Query() query: SecurityQuery, @Req() req: any) {
+  @Get('sessions') sessions(@Query() query: SessionQuery, @Req() req: any) {
     return this.service.sessions(query, req.session.id);
   }
   @Patch('sessions/:id/revoke') revoke(@Param('id') id: string, @Req() req: any) {

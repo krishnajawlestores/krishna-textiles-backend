@@ -24,6 +24,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 )`);
       await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AdminActivity_createdAt_id_idx" ON "AdminActivity" ("createdAt", "id")`);
       await this.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "AdminActivity_userId_createdAt_idx" ON "AdminActivity" ("userId", "createdAt")`);
+      await this.$executeRawUnsafe(`ALTER TABLE "AdminActivity" ADD COLUMN IF NOT EXISTS "description" TEXT`);
 
       // 1. Ensure sizeVariants column exists on Product table
       await this.$executeRawUnsafe(`
