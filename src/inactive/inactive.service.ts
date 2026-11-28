@@ -28,7 +28,7 @@ export class InactiveService {
   private async cmsRows(query: InactiveQueryDto) {
     const [banners, pages, announcement] = await Promise.all([this.cms.getAllBanners(true), this.cms.getAllPages(true), this.cms.getAnnouncement(true)]);
     return [
-      ...banners.filter(b => !b.isActive).map(b => ({ id: `banner:${b.id}`, sourceId: b.id, kind: 'banner', name: b.title, detail: b.linkUrl, updatedAt: b.updatedAt })),
+      ...banners.filter(b => !b.isActive).map(b => ({ id: `banner:${b.id}`, sourceId: b.id, kind: 'banner', name: b.title, image: b.image, detail: b.linkUrl, updatedAt: b.updatedAt })),
       ...pages.filter(p => !p.isPublished).map(p => ({ id: `page:${p.id}`, sourceId: p.id, kind: 'page', name: p.title, detail: p.slug, updatedAt: p.updatedAt })),
       ...(announcement && !announcement.isActive ? [{ id: `announcement:${announcement.id}`, sourceId: announcement.id, kind: 'announcement', name: announcement.text, detail: announcement.linkUrl, updatedAt: announcement.updatedAt }] : []),
     ].filter(row => (!query.cmsType || query.cmsType === 'all' || row.kind === query.cmsType) &&
@@ -53,10 +53,10 @@ export class InactiveService {
     const select = type === 'orders'
       ? { id: true, orderNumber: true, customerName: true, status: true, updatedAt: true }
       : ['products', 'stocks'].includes(type)
-        ? { id: true, name: true, sku: true, stock: true, category: true, brand: true, updatedAt: true }
-        : { id: true, name: true, slug: true, updatedAt: true };
+        ? { id: true, name: true, sku: true, stock: true, category: true, brand: true, imageUrl: true, images: true, updatedAt: true }
+        : { id: true, name: true, slug: true, image: true, updatedAt: true };
     const rows = await delegate.findMany({ where, select, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit });
-    return { data: rows.map(row => ({ ...row, name: row.name || row.orderNumber, detail: row.sku || row.slug || row.customerName })), total, page, totalPages };
+    return { data: rows.map(row => ({ ...row, image: row.images?.[0] || row.imageUrl || row.image || null, name: row.name || row.orderNumber, detail: row.sku || row.slug || row.customerName })), total, page, totalPages };
   }
 
   async activate(type: string, body: ActivateInactiveDto) {
